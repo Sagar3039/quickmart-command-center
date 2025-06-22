@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useFirebaseCollection } from "@/hooks/useFirebaseData";
 import { 
   Search, 
   Filter, 
@@ -18,65 +19,24 @@ import {
 export function InventoryTracking() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCategory, setFilterCategory] = useState('all');
+  
+  const { data: products, loading, error } = useFirebaseCollection('products');
 
-  const inventory = [
-    {
-      id: 1,
-      name: 'Organic Bananas',
-      category: 'Local Foods',
-      currentStock: 15,
-      minStock: 20,
-      maxStock: 100,
-      unit: 'bunches',
-      price: 2.99,
-      supplier: 'Green Valley Farm',
-      lastRestock: '2024-06-20',
-      dailyUsage: 8,
-      trend: 'down'
-    },
-    {
-      id: 2,
-      name: 'Premium Vodka',
-      category: 'Alcohol',
-      currentStock: 45,
-      minStock: 25,
-      maxStock: 80,
-      unit: 'bottles',
-      price: 29.99,
-      supplier: 'Spirit Distributors',
-      lastRestock: '2024-06-18',
-      dailyUsage: 3,
-      trend: 'stable'
-    },
-    {
-      id: 3,
-      name: 'Toilet Paper (24-pack)',
-      category: 'Essentials',
-      currentStock: 8,
-      minStock: 15,
-      maxStock: 50,
-      unit: 'packs',
-      price: 12.99,
-      supplier: 'Bulk Supply Co',
-      lastRestock: '2024-06-19',
-      dailyUsage: 5,
-      trend: 'down'
-    },
-    {
-      id: 4,
-      name: 'Fresh Bread',
-      category: 'Local Foods',
-      currentStock: 32,
-      minStock: 20,
-      maxStock: 60,
-      unit: 'loaves',
-      price: 3.49,
-      supplier: 'Local Bakery',
-      lastRestock: '2024-06-22',
-      dailyUsage: 12,
-      trend: 'up'
-    },
-  ];
+  // Transform Firebase data to match inventory structure
+  const inventory = products.map((product, index) => ({
+    id: index + 1,
+    name: product.name || 'Unknown Product',
+    category: product.category || 'Essentials',
+    currentStock: Math.floor(Math.random() * 50) + 10, // Random stock for demo
+    minStock: 20,
+    maxStock: 100,
+    unit: 'units',
+    price: product.price || 0,
+    supplier: 'Local Supplier',
+    lastRestock: new Date().toISOString().split('T')[0],
+    dailyUsage: Math.floor(Math.random() * 10) + 1,
+    trend: ['up', 'down', 'stable'][Math.floor(Math.random() * 3)]
+  }));
 
   const getStockStatus = (current: number, min: number) => {
     if (current <= min * 0.5) return 'critical';
@@ -102,6 +62,7 @@ export function InventoryTracking() {
       case 'Essentials': return 'bg-blue-100 text-blue-800';
       case 'Local Foods': return 'bg-green-100 text-green-800';
       case 'Alcohol': return 'bg-amber-100 text-amber-800';
+      case 'daily_essential': return 'bg-blue-100 text-blue-800';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
@@ -133,6 +94,22 @@ export function InventoryTracking() {
     critical: inventory.filter(item => getStockStatus(item.currentStock, item.minStock) === 'critical').length,
     totalValue: inventory.reduce((sum, item) => sum + (item.currentStock * item.price), 0),
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-lg">Loading inventory data...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-lg text-red-600">Error loading data: {error}</div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -207,6 +184,7 @@ export function InventoryTracking() {
             <option value="Essentials">Essentials</option>
             <option value="Local Foods">Local Foods</option>
             <option value="Alcohol">Alcohol</option>
+            <option value="daily_essential">Daily Essential</option>
           </select>
         </div>
         <Button variant="outline" size="sm">

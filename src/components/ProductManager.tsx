@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useFirebaseCollection } from "@/hooks/useFirebaseData";
 import { 
   Plus, 
   Search, 
@@ -19,57 +20,30 @@ import {
 export function ProductManager() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
+  
+  const { data: products, loading, error } = useFirebaseCollection('products');
 
-  const products = [
-    { 
-      id: 1, 
-      name: 'Organic Milk', 
-      category: 'Essentials', 
-      price: 4.99, 
-      stock: 45, 
-      status: 'active',
-      image: '/placeholder.svg',
-      lowStock: false
-    },
-    { 
-      id: 2, 
-      name: 'Fresh Bread', 
-      category: 'Local Foods', 
-      price: 2.50, 
-      stock: 8, 
-      status: 'active',
-      image: '/placeholder.svg',
-      lowStock: true
-    },
-    { 
-      id: 3, 
-      name: 'Premium Wine', 
-      category: 'Alcohol', 
-      price: 24.99, 
-      stock: 12, 
-      status: 'active',
-      image: '/placeholder.svg',
-      lowStock: false
-    },
-    { 
-      id: 4, 
-      name: 'Toilet Paper', 
-      category: 'Essentials', 
-      price: 8.99, 
-      stock: 0, 
-      status: 'out-of-stock',
-      image: '/placeholder.svg',
-      lowStock: true
-    },
-  ];
+  // Transform Firebase data to match product structure
+  const transformedProducts = products.map((product, index) => ({
+    id: index + 1,
+    name: product.name || 'Unknown Product',
+    category: product.category || 'Essentials',
+    price: product.price || 0,
+    stock: Math.floor(Math.random() * 50) + 1, // Random stock for demo
+    status: product.inStock ? 'active' : 'out-of-stock',
+    image: product.image || '/placeholder.svg',
+    lowStock: Math.random() > 0.7 // Random low stock status for demo
+  }));
 
-  const categories = ['all', 'Essentials', 'Local Foods', 'Alcohol'];
+  const categories = ['all', ...Array.from(new Set(products.map(p => p.category || 'Essentials')))];
 
   const getCategoryColor = (category: string) => {
     switch (category) {
       case 'Essentials': return 'bg-blue-100 text-blue-800';
       case 'Local Foods': return 'bg-green-100 text-green-800';
       case 'Alcohol': return 'bg-amber-100 text-amber-800';
+      case 'daily_essential': return 'bg-blue-100 text-blue-800';
+      case 'snacks': return 'bg-orange-100 text-orange-800';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
@@ -80,10 +54,26 @@ export function ProductManager() {
     return <Badge className="bg-green-100 text-green-800">In Stock</Badge>;
   };
 
-  const filteredProducts = products.filter(product => 
+  const filteredProducts = transformedProducts.filter(product => 
     (selectedCategory === 'all' || product.category === selectedCategory) &&
     product.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-lg">Loading products...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-lg text-red-600">Error loading products: {error}</div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -130,7 +120,11 @@ export function ProductManager() {
                   <CardContent className="p-4">
                     <div className="relative mb-4">
                       <div className="aspect-square bg-gray-100 rounded-lg flex items-center justify-center">
-                        <Image className="w-12 h-12 text-gray-400" />
+                        {product.image && product.image !== '/placeholder.svg' ? (
+                          <img src={product.image} alt={product.name} className="w-full h-full object-cover rounded-lg" />
+                        ) : (
+                          <Image className="w-12 h-12 text-gray-400" />
+                        )}
                       </div>
                       {product.lowStock && (
                         <div className="absolute -top-2 -right-2">
