@@ -1,7 +1,7 @@
 
 import { useState, useEffect } from 'react';
 import { collection, getDocs, onSnapshot, query, orderBy } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { auth, db } from '@/lib/firebase';
 
 export const useFirebaseCollection = (collectionName: string) => {
   const [data, setData] = useState<any[]>([]);
@@ -9,7 +9,7 @@ export const useFirebaseCollection = (collectionName: string) => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchData = () => {
       try {
         setLoading(true);
         const q = query(collection(db, collectionName), orderBy('createdAt', 'desc'));
@@ -30,6 +30,7 @@ export const useFirebaseCollection = (collectionName: string) => {
       } catch (err) {
         setError(err instanceof Error ? err.message : 'An error occurred');
         setLoading(false);
+        return () => {};
       }
     };
 
