@@ -5,7 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useFirebaseCollection } from "@/hooks/useFirebaseData";
+import { useToast } from "@/hooks/use-toast";
 import { 
   Plus, 
   Search, 
@@ -20,22 +24,118 @@ import {
 export function ProductManager() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<any>(null);
+  const [formData, setFormData] = useState({
+    name: '',
+    category: 'Essentials',
+    price: '',
+    stock: '',
+    image: ''
+  });
   
-  const { data: products, loading, error } = useFirebaseCollection('products');
+  const { data: products, loading, error, addDocument, updateDocument, deleteDocument } = useFirebaseCollection('products');
+  const { toast } = useToast();
 
   // Transform Firebase data to match product structure
   const transformedProducts = products.map((product, index) => ({
-    id: index + 1,
+    id: product.id || index + 1,
     name: product.name || 'Unknown Product',
     category: product.category || 'Essentials',
-    price: product.price || 0,
-    stock: Math.floor(Math.random() * 50) + 1, // Random stock for demo
-    status: product.inStock ? 'active' : 'out-of-stock',
+    price: parseFloat(product.price) || 0,
+    stock: parseInt(product.stock) || Math.floor(Math.random() * 50) + 1,
+    status: product.inStock !== false ? 'active' : 'out-of-stock',
     image: product.image || '/placeholder.svg',
-    lowStock: Math.random() > 0.7 // Random low stock status for demo
+    lowStock: (parseInt(product.stock) || 0) < 10,
+    firebaseId: product.id
   }));
 
   const categories = ['all', ...Array.from(new Set(products.map(p => p.category || 'Essentials')))];
+
+  const handleAddProduct = async () => {
+    try {
+      await addDocument({
+        name: formData.name,
+        category: formData.category,
+        price: parseFloat(formData.price),
+        stock: parseInt(formData.stock),
+        image: formData.image,
+        inStock: true
+      });
+      
+      toast({
+        title: "Success",
+        description: "Product added successfully"
+      });
+      
+      setIsAddDialogOpen(false);
+      setFormData({ name: '', category: 'Essentials', price: '', stock: '', image: '' });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to add product",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleEditProduct = async () => {
+    try {
+      await updateDocument(editingProduct.firebaseId, {
+        name: formData.name,
+        category: formData.category,
+        price: parseFloat(formData.price),
+        stock: parseInt(formData.stock),
+        image: formData.image
+      });
+      
+      toast({
+        title: "Success",
+        description: "Product updated successfully"
+      });
+      
+      setIsEditDialogOpen(false);
+      setEditingProduct(null);
+      setFormData({ name: '', category: 'Essentials', price: '', stock: '', image: '' });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update product",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleDeleteProduct = async (product: any) => {
+    if (window.confirm('Are you sure you want to delete this product?')) {
+      try {
+        await deleteDocument(product.firebaseId);
+        toast({
+          title: "Success",
+          description: "Product deleted successfully"
+        });
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: "Failed to delete product",
+          variant: "destructive"
+        });
+      }
+    }
+  };
+
+  const openEditDialog = (product: any) => {
+    setEditingProduct(product);
+    setFormData({
+      name: product.name,
+      category: product.category,
+      price: product.price.toString(),
+      stock: product.stock.toString(),
+      image: product.image
+    });
+    setIsEditDialogOpen(true);
+  };
 
   const getCategoryColor = (category: string) => {
     switch (category) {
@@ -79,11 +179,143 @@ export function ProductManager() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">Product Management</h1>
-        <Button className="flex items-center gap-2">
-          <Plus className="w-4 h-4" />
-          Add Product
-        </Button>
+        <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+          <DialogTrigger asChild>
+            <Button className="flex items-center gap-2">
+              <Plus className="w-4 h-4" />
+              Add Product
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Add New Product</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="name">Product Name</Label>
+                <Input
+                  id="name"
+                  value={formData.name}
+                  onChange={(e) => setFormData({...formData, name: e.target.value})}
+                  placeholder="Enter product name"
+                />
+              </div>
+              <div>
+                <Label htmlFor="category">Category</Label>
+                <Select value={formData.category} onValueChange={(value) => setFormData({...formData, category: value})}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Essentials">Essentials</SelectItem>
+                    <SelectItem value="Local Foods">Local Foods</SelectItem>
+                    <SelectItem value="Alcohol">Alcohol</SelectItem>
+                    <SelectItem value="Snacks">Snacks</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="price">Price</Label>
+                <Input
+                  id="price"
+                  type="number"
+                  value={formData.price}
+                  onChange={(e) => setFormData({...formData, price: e.target.value})}
+                  placeholder="0.00"
+                />
+              </div>
+              <div>
+                <Label htmlFor="stock">Stock</Label>
+                <Input
+                  id="stock"
+                  type="number"
+                  value={formData.stock}
+                  onChange={(e) => setFormData({...formData, stock: e.target.value})}
+                  placeholder="0"
+                />
+              </div>
+              <div>
+                <Label htmlFor="image">Image URL</Label>
+                <Input
+                  id="image"
+                  value={formData.image}
+                  onChange={(e) => setFormData({...formData, image: e.target.value})}
+                  placeholder="https://example.com/image.jpg"
+                />
+              </div>
+              <Button onClick={handleAddProduct} className="w-full">
+                Add Product
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
+
+      {/* Edit Dialog */}
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Product</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="edit-name">Product Name</Label>
+              <Input
+                id="edit-name"
+                value={formData.name}
+                onChange={(e) => setFormData({...formData, name: e.target.value})}
+                placeholder="Enter product name"
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit-category">Category</Label>
+              <Select value={formData.category} onValueChange={(value) => setFormData({...formData, category: value})}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Essentials">Essentials</SelectItem>
+                  <SelectItem value="Local Foods">Local Foods</SelectItem>
+                  <SelectItem value="Alcohol">Alcohol</SelectItem>
+                  <SelectItem value="Snacks">Snacks</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="edit-price">Price</Label>
+              <Input
+                id="edit-price"
+                type="number"
+                value={formData.price}
+                onChange={(e) => setFormData({...formData, price: e.target.value})}
+                placeholder="0.00"
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit-stock">Stock</Label>
+              <Input
+                id="edit-stock"
+                type="number"
+                value={formData.stock}
+                onChange={(e) => setFormData({...formData, stock: e.target.value})}
+                placeholder="0"
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit-image">Image URL</Label>
+              <Input
+                id="edit-image"
+                value={formData.image}
+                onChange={(e) => setFormData({...formData, image: e.target.value})}
+                placeholder="https://example.com/image.jpg"
+              />
+            </div>
+            <Button onClick={handleEditProduct} className="w-full">
+              Update Product
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Tabs value={selectedCategory} onValueChange={setSelectedCategory}>
         <div className="flex items-center justify-between">
@@ -152,11 +384,11 @@ export function ProductManager() {
                       </div>
                       
                       <div className="flex gap-2 pt-2">
-                        <Button size="sm" variant="outline" className="flex-1">
+                        <Button size="sm" variant="outline" className="flex-1" onClick={() => openEditDialog(product)}>
                           <Edit className="w-4 h-4 mr-1" />
                           Edit
                         </Button>
-                        <Button size="sm" variant="outline" className="text-red-600 hover:text-red-700">
+                        <Button size="sm" variant="outline" className="text-red-600 hover:text-red-700" onClick={() => handleDeleteProduct(product)}>
                           <Trash2 className="w-4 h-4" />
                         </Button>
                       </div>
