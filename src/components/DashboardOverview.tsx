@@ -56,35 +56,35 @@ export function DashboardOverview() {
     { 
       name: 'Essentials', 
       orders: orders.filter(o => o.category === 'Essentials').length, 
-      revenue: `$${orders.filter(o => o.category === 'Essentials').reduce((sum, o) => sum + (o.total || 0), 0)}`, 
+      revenue: orders.filter(o => o.category === 'Essentials').reduce((sum, o) => sum + (parseFloat(o.total) || 0), 0), 
       color: 'bg-blue-500' 
     },
     { 
       name: 'Local Foods', 
       orders: orders.filter(o => o.category === 'Local Foods').length, 
-      revenue: `$${orders.filter(o => o.category === 'Local Foods').reduce((sum, o) => sum + (o.total || 0), 0)}`, 
+      revenue: orders.filter(o => o.category === 'Local Foods').reduce((sum, o) => sum + (parseFloat(o.total) || 0), 0), 
       color: 'bg-green-500' 
     },
     { 
       name: 'Alcohol', 
       orders: orders.filter(o => o.category === 'Alcohol').length, 
-      revenue: `$${orders.filter(o => o.category === 'Alcohol').reduce((sum, o) => sum + (o.total || 0), 0)}`, 
+      revenue: orders.filter(o => o.category === 'Alcohol').reduce((sum, o) => sum + (parseFloat(o.total) || 0), 0), 
       color: 'bg-amber-500' 
     },
   ];
 
   const recentOrders = orders.slice(0, 4).map(order => ({
-    id: `#${order.id?.slice(-6) || 'N/A'}`,
-    customer: order.customer || 'Unknown Customer',
-    status: order.status || 'confirmed',
-    category: order.category || 'Essentials',
+    id: `#${order.id?.toString().slice(-6) || 'N/A'}`,
+    customer: order.customer?.toString() || 'Unknown Customer',
+    status: order.status?.toString() || 'confirmed',
+    category: order.category?.toString() || 'Essentials',
     time: order.createdAt ? 'Recently' : 'Unknown time'
   }));
 
-  const lowStockItems = products.filter(product => (product.stock || 0) < 10).slice(0, 3).map(product => ({
-    name: product.name || 'Unknown Product',
-    stock: product.stock || 0,
-    category: product.category || 'Essentials'
+  const lowStockItems = products.filter(product => (parseInt(product.stock) || 0) < 10).slice(0, 3).map(product => ({
+    name: product.name?.toString() || 'Unknown Product',
+    stock: parseInt(product.stock) || 0,
+    category: product.category?.toString() || 'Essentials'
   }));
 
   const getStatusBadge = (status: string) => {
@@ -162,7 +162,7 @@ export function DashboardOverview() {
                   </div>
                   <div className="flex justify-between text-sm">
                     <span>Revenue</span>
-                    <span className="font-medium">{category.revenue}</span>
+                    <span className="font-medium">${category.revenue.toFixed(2)}</span>
                   </div>
                   <Progress value={(category.orders / Math.max(orders.length, 1)) * 100} className="h-2" />
                 </div>
