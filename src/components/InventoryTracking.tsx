@@ -4,7 +4,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Progress } from "@/components/ui/progress";
 import { 
   Search, 
   Filter, 
@@ -23,74 +22,76 @@ export function InventoryTracking() {
   const inventory = [
     {
       id: 1,
-      name: 'Organic Milk',
-      category: 'Essentials',
+      name: 'Organic Bananas',
+      category: 'Local Foods',
       currentStock: 15,
       minStock: 20,
       maxStock: 100,
-      reorderPoint: 25,
-      status: 'low',
+      unit: 'bunches',
+      price: 2.99,
+      supplier: 'Green Valley Farm',
       lastRestock: '2024-06-20',
-      avgDailyUsage: 8,
-      supplier: 'Fresh Dairy Co.'
+      dailyUsage: 8,
+      trend: 'down'
     },
     {
       id: 2,
-      name: 'Fresh Bread',
-      category: 'Local Foods',
-      currentStock: 8,
-      minStock: 10,
-      maxStock: 50,
-      reorderPoint: 15,
-      status: 'critical',
-      lastRestock: '2024-06-21',
-      avgDailyUsage: 12,
-      supplier: 'Local Bakery'
+      name: 'Premium Vodka',
+      category: 'Alcohol',
+      currentStock: 45,
+      minStock: 25,
+      maxStock: 80,
+      unit: 'bottles',
+      price: 29.99,
+      supplier: 'Spirit Distributors',
+      lastRestock: '2024-06-18',
+      dailyUsage: 3,
+      trend: 'stable'
     },
     {
       id: 3,
-      name: 'Premium Wine',
-      category: 'Alcohol',
-      currentStock: 45,
+      name: 'Toilet Paper (24-pack)',
+      category: 'Essentials',
+      currentStock: 8,
       minStock: 15,
-      maxStock: 80,
-      reorderPoint: 20,
-      status: 'good',
-      lastRestock: '2024-06-18',
-      avgDailyUsage: 3,
-      supplier: 'Wine Distributors Inc.'
+      maxStock: 50,
+      unit: 'packs',
+      price: 12.99,
+      supplier: 'Bulk Supply Co',
+      lastRestock: '2024-06-19',
+      dailyUsage: 5,
+      trend: 'down'
     },
     {
       id: 4,
-      name: 'Toilet Paper',
-      category: 'Essentials',
-      currentStock: 0,
-      minStock: 25,
-      maxStock: 150,
-      reorderPoint: 40,
-      status: 'out',
-      lastRestock: '2024-06-15',
-      avgDailyUsage: 15,
-      supplier: 'Household Supplies Ltd.'
+      name: 'Fresh Bread',
+      category: 'Local Foods',
+      currentStock: 32,
+      minStock: 20,
+      maxStock: 60,
+      unit: 'loaves',
+      price: 3.49,
+      supplier: 'Local Bakery',
+      lastRestock: '2024-06-22',
+      dailyUsage: 12,
+      trend: 'up'
     },
   ];
 
+  const getStockStatus = (current: number, min: number) => {
+    if (current <= min * 0.5) return 'critical';
+    if (current <= min) return 'low';
+    return 'good';
+  };
+
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'good':
-        return <Badge className="bg-green-100 text-green-800">Good Stock</Badge>;
-      case 'low':
-        return <Badge className="bg-yellow-100 text-yellow-800 flex items-center gap-1">
-          <AlertTriangle className="w-3 h-3" />
-          Low Stock
-        </Badge>;
       case 'critical':
-        return <Badge className="bg-red-100 text-red-800 flex items-center gap-1">
-          <AlertTriangle className="w-3 h-3" />
-          Critical
-        </Badge>;
-      case 'out':
-        return <Badge className="bg-red-200 text-red-900">Out of Stock</Badge>;
+        return <Badge className="bg-red-100 text-red-800">Critical</Badge>;
+      case 'low':
+        return <Badge className="bg-yellow-100 text-yellow-800">Low Stock</Badge>;
+      case 'good':
+        return <Badge className="bg-green-100 text-green-800">In Stock</Badge>;
       default:
         return <Badge className="bg-gray-100 text-gray-800">Unknown</Badge>;
     }
@@ -105,13 +106,20 @@ export function InventoryTracking() {
     }
   };
 
-  const getStockLevel = (currentStock: number, maxStock: number) => {
-    return (currentStock / maxStock) * 100;
+  const getTrendIcon = (trend: string) => {
+    switch (trend) {
+      case 'up':
+        return <TrendingUp className="w-4 h-4 text-green-600" />;
+      case 'down':
+        return <TrendingDown className="w-4 h-4 text-red-600" />;
+      default:
+        return <div className="w-4 h-4 bg-gray-300 rounded-full"></div>;
+    }
   };
 
-  const getDaysUntilOut = (currentStock: number, avgDailyUsage: number) => {
-    if (avgDailyUsage === 0) return '∞';
-    return Math.floor(currentStock / avgDailyUsage);
+  const getDaysUntilOut = (current: number, dailyUsage: number): number => {
+    if (dailyUsage === 0) return 999;
+    return Math.floor(current / dailyUsage);
   };
 
   const filteredInventory = inventory.filter(item => 
@@ -121,9 +129,9 @@ export function InventoryTracking() {
 
   const inventoryStats = {
     total: inventory.length,
-    lowStock: inventory.filter(item => item.status === 'low' || item.status === 'critical').length,
-    outOfStock: inventory.filter(item => item.status === 'out').length,
-    reorderNeeded: inventory.filter(item => item.currentStock <= item.reorderPoint).length,
+    lowStock: inventory.filter(item => getStockStatus(item.currentStock, item.minStock) === 'low').length,
+    critical: inventory.filter(item => getStockStatus(item.currentStock, item.minStock) === 'critical').length,
+    totalValue: inventory.reduce((sum, item) => sum + (item.currentStock * item.price), 0),
   };
 
   return (
@@ -146,45 +154,33 @@ export function InventoryTracking() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">Total Items</p>
-                <p className="text-2xl font-bold">{inventoryStats.total}</p>
-              </div>
-              <Package className="w-8 h-8 text-blue-500" />
+            <div className="text-center">
+              <p className="text-2xl font-bold">{inventoryStats.total}</p>
+              <p className="text-sm text-gray-600">Total Items</p>
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">Low Stock</p>
-                <p className="text-2xl font-bold text-yellow-600">{inventoryStats.lowStock}</p>
-              </div>
-              <AlertTriangle className="w-8 h-8 text-yellow-500" />
+            <div className="text-center">
+              <p className="text-2xl font-bold text-yellow-600">{inventoryStats.lowStock}</p>
+              <p className="text-sm text-gray-600">Low Stock</p>
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">Out of Stock</p>
-                <p className="text-2xl font-bold text-red-600">{inventoryStats.outOfStock}</p>
-              </div>
-              <TrendingDown className="w-8 h-8 text-red-500" />
+            <div className="text-center">
+              <p className="text-2xl font-bold text-red-600">{inventoryStats.critical}</p>
+              <p className="text-sm text-gray-600">Critical</p>
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">Reorder Needed</p>
-                <p className="text-2xl font-bold text-orange-600">{inventoryStats.reorderNeeded}</p>
-              </div>
-              <RefreshCw className="w-8 h-8 text-orange-500" />
+            <div className="text-center">
+              <p className="text-2xl font-bold">${inventoryStats.totalValue.toFixed(2)}</p>
+              <p className="text-sm text-gray-600">Total Value</p>
             </div>
           </CardContent>
         </Card>
@@ -215,104 +211,113 @@ export function InventoryTracking() {
         </div>
         <Button variant="outline" size="sm">
           <Filter className="w-4 h-4 mr-2" />
-          Advanced Filters
+          More Filters
         </Button>
       </div>
 
       {/* Inventory List */}
       <div className="space-y-4">
-        {filteredInventory.map(item => (
-          <Card key={item.id} className="hover:shadow-md transition-shadow">
-            <CardContent className="p-6">
-              <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-                {/* Product Info */}
-                <div className="space-y-2">
-                  <h3 className="font-semibold text-lg">{item.name}</h3>
-                  <Badge className={getCategoryColor(item.category)}>
-                    {item.category}
-                  </Badge>
-                  {getStatusBadge(item.status)}
-                  <div className="text-sm text-gray-600">
-                    Supplier: {item.supplier}
-                  </div>
-                </div>
-
-                {/* Stock Levels */}
-                <div className="space-y-3">
-                  <div className="text-sm">
-                    <div className="flex justify-between mb-1">
-                      <span>Current Stock</span>
-                      <span className="font-bold">{item.currentStock}/{item.maxStock}</span>
+        {filteredInventory.map(item => {
+          const status = getStockStatus(item.currentStock, item.minStock);
+          const daysUntilOut = getDaysUntilOut(item.currentStock, item.dailyUsage);
+          
+          return (
+            <Card key={item.id} className="hover:shadow-md transition-shadow">
+              <CardContent className="p-6">
+                <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+                  {/* Product Info */}
+                  <div className="flex items-start gap-3">
+                    <div className="w-12 h-12 bg-gray-200 rounded-md flex items-center justify-center">
+                      <Package className="w-6 h-6 text-gray-500" />
                     </div>
-                    <Progress 
-                      value={getStockLevel(item.currentStock, item.maxStock)} 
-                      className="h-2"
-                    />
+                    <div className="space-y-1">
+                      <h3 className="font-semibold text-lg">{item.name}</h3>
+                      <div className="flex gap-2">
+                        {getStatusBadge(status)}
+                        <Badge className={getCategoryColor(item.category)}>
+                          {item.category}
+                        </Badge>
+                      </div>
+                      <div className="text-sm text-gray-600">
+                        Supplier: {item.supplier}
+                      </div>
+                    </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div>
+
+                  {/* Stock Levels */}
+                  <div className="space-y-2">
+                    <div className="text-sm">
+                      <span className="text-gray-600">Current: </span>
+                      <span className="font-semibold">{item.currentStock} {item.unit}</span>
+                    </div>
+                    <div className="text-sm">
                       <span className="text-gray-600">Min: </span>
-                      <span>{item.minStock}</span>
+                      <span>{item.minStock} {item.unit}</span>
                     </div>
-                    <div>
-                      <span className="text-gray-600">Reorder: </span>
-                      <span>{item.reorderPoint}</span>
+                    <div className="text-sm">
+                      <span className="text-gray-600">Max: </span>
+                      <span>{item.maxStock} {item.unit}</span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div 
+                        className={`h-2 rounded-full ${
+                          status === 'critical' ? 'bg-red-500' : 
+                          status === 'low' ? 'bg-yellow-500' : 'bg-green-500'
+                        }`}
+                        style={{ width: `${Math.min((item.currentStock / item.maxStock) * 100, 100)}%` }}
+                      ></div>
                     </div>
                   </div>
-                </div>
 
-                {/* Usage Analytics */}
-                <div className="space-y-2">
-                  <div className="text-sm">
-                    <span className="text-gray-600">Daily Usage: </span>
-                    <span className="font-medium">{item.avgDailyUsage} units</span>
+                  {/* Usage & Trends */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-sm">
+                      {getTrendIcon(item.trend)}
+                      <span className="text-gray-600">Daily Usage: {item.dailyUsage}</span>
+                    </div>
+                    <div className="text-sm">
+                      <span className="text-gray-600">Days left: </span>
+                      <span className={`font-medium ${daysUntilOut < 3 ? 'text-red-600' : daysUntilOut < 7 ? 'text-yellow-600' : 'text-green-600'}`}>
+                        {daysUntilOut}
+                      </span>
+                    </div>
+                    <div className="text-sm text-gray-600">
+                      Last restock: {item.lastRestock}
+                    </div>
                   </div>
-                  <div className="text-sm">
-                    <span className="text-gray-600">Days Until Out: </span>
-                    <span className={`font-medium ${
-                      getDaysUntilOut(item.currentStock, item.avgDailyUsage) < 7 
-                        ? 'text-red-600' 
-                        : getDaysUntilOut(item.currentStock, item.avgDailyUsage) < 14 
-                          ? 'text-yellow-600' 
-                          : 'text-green-600'
-                    }`}>
-                      {getDaysUntilOut(item.currentStock, item.avgDailyUsage)} days
-                    </span>
-                  </div>
-                  <div className="text-sm text-gray-600">
-                    Last Restock: {item.lastRestock}
-                  </div>
-                </div>
 
-                {/* Trends */}
-                <div className="flex items-center justify-center">
-                  {item.status === 'out' || item.status === 'critical' ? (
-                    <TrendingDown className="w-8 h-8 text-red-500" />
-                  ) : item.status === 'low' ? (
-                    <TrendingDown className="w-8 h-8 text-yellow-500" />
-                  ) : (
-                    <TrendingUp className="w-8 h-8 text-green-500" />
-                  )}
-                </div>
+                  {/* Pricing */}
+                  <div className="space-y-2">
+                    <div className="text-sm">
+                      <span className="text-gray-600">Unit Price: </span>
+                      <span className="font-semibold">${item.price}</span>
+                    </div>
+                    <div className="text-sm">
+                      <span className="text-gray-600">Total Value: </span>
+                      <span className="font-semibold">${(item.currentStock * item.price).toFixed(2)}</span>
+                    </div>
+                  </div>
 
-                {/* Actions */}
-                <div className="flex flex-col gap-2">
-                  <Button size="sm" variant="outline">
-                    Update Stock
-                  </Button>
-                  {item.currentStock <= item.reorderPoint && (
+                  {/* Actions */}
+                  <div className="flex flex-col gap-2">
                     <Button size="sm">
-                      Reorder Now
+                      Reorder Stock
                     </Button>
-                  )}
-                  <Button size="sm" variant="outline">
-                    View History
-                  </Button>
+                    <Button size="sm" variant="outline">
+                      Edit Details
+                    </Button>
+                    {status === 'critical' && (
+                      <Button size="sm" variant="outline" className="text-red-600">
+                        <AlertTriangle className="w-4 h-4 mr-2" />
+                        Urgent Order
+                      </Button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
     </div>
   );
