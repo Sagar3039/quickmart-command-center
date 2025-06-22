@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { useFirebaseCollection } from "@/hooks/useFirebaseData";
 import { 
   Search, 
   Filter, 
@@ -20,61 +21,8 @@ import {
 export function UserManagement() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
-
-  const users = [
-    {
-      id: 1,
-      name: 'John Doe',
-      email: 'john.doe@email.com',
-      phone: '+1 234-567-8900',
-      status: 'active',
-      joinDate: '2024-01-15',
-      totalOrders: 24,
-      totalSpent: 450.80,
-      lastOrder: '2 days ago',
-      address: '123 Main St, Downtown',
-      category: 'Premium'
-    },
-    {
-      id: 2,
-      name: 'Jane Smith',
-      email: 'jane.smith@email.com',
-      phone: '+1 234-567-8901',
-      status: 'active',
-      joinDate: '2024-02-20',
-      totalOrders: 12,
-      totalSpent: 280.50,
-      lastOrder: '1 day ago',
-      address: '456 Oak Ave, Midtown',
-      category: 'Regular'
-    },
-    {
-      id: 3,
-      name: 'Mike Johnson',
-      email: 'mike.johnson@email.com',
-      phone: '+1 234-567-8902',
-      status: 'banned',
-      joinDate: '2024-01-10',
-      totalOrders: 8,
-      totalSpent: 120.30,
-      lastOrder: '2 weeks ago',
-      address: '789 Pine St, Uptown',
-      category: 'Regular'
-    },
-    {
-      id: 4,
-      name: 'Sarah Wilson',
-      email: 'sarah.wilson@email.com',
-      phone: '+1 234-567-8903',
-      status: 'active',
-      joinDate: '2024-03-05',
-      totalOrders: 35,
-      totalSpent: 680.90,
-      lastOrder: '3 hours ago',
-      address: '321 Elm St, Suburbs',
-      category: 'Premium'
-    },
-  ];
+  
+  const { data: users, loading, error, updateDocument, deleteDocument } = useFirebaseCollection('users');
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -85,7 +33,7 @@ export function UserManagement() {
       case 'suspended':
         return <Badge className="bg-yellow-100 text-yellow-800">Suspended</Badge>;
       default:
-        return <Badge className="bg-gray-100 text-gray-800">Unknown</Badge>;
+        return <Badge className="bg-green-100 text-green-800">Active</Badge>;
     }
   };
 
@@ -96,22 +44,48 @@ export function UserManagement() {
       case 'Regular':
         return <Badge className="bg-blue-100 text-blue-800">Regular</Badge>;
       default:
-        return <Badge className="bg-gray-100 text-gray-800">Basic</Badge>;
+        return <Badge className="bg-blue-100 text-blue-800">Regular</Badge>;
+    }
+  };
+
+  const handleUserStatusToggle = async (userId: string, currentStatus: string) => {
+    try {
+      const newStatus = currentStatus === 'active' ? 'banned' : 'active';
+      await updateDocument(userId, { status: newStatus });
+      console.log('User status updated successfully');
+    } catch (error) {
+      console.error('Failed to update user status:', error);
     }
   };
 
   const filteredUsers = users.filter(user => 
     (filterStatus === 'all' || user.status === filterStatus) &&
-    (user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-     user.email.toLowerCase().includes(searchTerm.toLowerCase()))
+    ((user.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+     (user.email || '').toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   const userStats = {
     total: users.length,
-    active: users.filter(u => u.status === 'active').length,
+    active: users.filter(u => u.status === 'active' || !u.status).length,
     banned: users.filter(u => u.status === 'banned').length,
     premium: users.filter(u => u.category === 'Premium').length,
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-lg">Loading users...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-lg text-red-600">Error loading users: {error}</div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -196,17 +170,19 @@ export function UserManagement() {
                 {/* User Info */}
                 <div className="flex items-start gap-3">
                   <Avatar className="w-12 h-12">
-                    <AvatarFallback>{user.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
+                    <AvatarFallback>
+                      {(user.name || 'U').split(' ').map(n => n[0]).join('').toUpperCase()}
+                    </AvatarFallback>
                   </Avatar>
                   <div className="space-y-1">
-                    <h3 className="font-semibold text-lg">{user.name}</h3>
+                    <h3 className="font-semibold text-lg">{user.name || 'Unknown User'}</h3>
                     <div className="flex items-center gap-2 text-sm text-gray-600">
                       <Mail className="w-4 h-4" />
-                      <span>{user.email}</span>
+                      <span>{user.email || 'No email'}</span>
                     </div>
                     <div className="flex items-center gap-2 text-sm text-gray-600">
                       <Phone className="w-4 h-4" />
-                      <span>{user.phone}</span>
+                      <span>{user.phone || 'No phone'}</span>
                     </div>
                     <div className="flex gap-2">
                       {getStatusBadge(user.status)}
@@ -219,14 +195,14 @@ export function UserManagement() {
                 <div className="space-y-2">
                   <div className="text-sm">
                     <span className="text-gray-600">Total Orders: </span>
-                    <span className="font-semibold">{user.totalOrders}</span>
+                    <span className="font-semibold">{user.totalOrders || 0}</span>
                   </div>
                   <div className="text-sm">
                     <span className="text-gray-600">Total Spent: </span>
-                    <span className="font-semibold">${user.totalSpent}</span>
+                    <span className="font-semibold">${user.totalSpent || 0}</span>
                   </div>
                   <div className="text-sm text-gray-600">
-                    Last order: {user.lastOrder}
+                    Last order: {user.lastOrder || 'Never'}
                   </div>
                 </div>
 
@@ -234,11 +210,13 @@ export function UserManagement() {
                 <div className="space-y-2">
                   <div className="flex items-start gap-2 text-sm">
                     <MapPin className="w-4 h-4 text-gray-400 mt-0.5" />
-                    <span className="text-gray-600">{user.address}</span>
+                    <span className="text-gray-600">{user.address || 'No address'}</span>
                   </div>
                   <div className="flex items-center gap-2 text-sm">
                     <Calendar className="w-4 h-4 text-gray-400" />
-                    <span className="text-gray-600">Joined {user.joinDate}</span>
+                    <span className="text-gray-600">
+                      Joined {user.createdAt ? new Date(user.createdAt.seconds * 1000).toLocaleDateString() : 'Unknown'}
+                    </span>
                   </div>
                 </div>
 
@@ -248,13 +226,23 @@ export function UserManagement() {
                     <Eye className="w-4 h-4 mr-2" />
                     View Profile
                   </Button>
-                  {user.status === 'active' ? (
-                    <Button size="sm" variant="outline" className="text-red-600 hover:text-red-700">
+                  {(user.status === 'active' || !user.status) ? (
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      className="text-red-600 hover:text-red-700"
+                      onClick={() => handleUserStatusToggle(user.id, user.status || 'active')}
+                    >
                       <ShieldOff className="w-4 h-4 mr-2" />
                       Ban User
                     </Button>
                   ) : (
-                    <Button size="sm" variant="outline" className="text-green-600 hover:text-green-700">
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      className="text-green-600 hover:text-green-700"
+                      onClick={() => handleUserStatusToggle(user.id, user.status)}
+                    >
                       <Shield className="w-4 h-4 mr-2" />
                       Unban User
                     </Button>

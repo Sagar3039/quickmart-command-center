@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
+import { useFirebaseCollection } from "@/hooks/useFirebaseData";
 import { 
   Search, 
   Filter, 
@@ -22,69 +23,8 @@ import {
 export function RiderManagement() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
-
-  const riders = [
-    {
-      id: 1,
-      name: 'Mike Rodriguez',
-      phone: '+1 234-567-8900',
-      status: 'online',
-      zone: 'Downtown',
-      rating: 4.8,
-      totalDeliveries: 1250,
-      completionRate: 98.5,
-      averageTime: '18 min',
-      earnings: 3420.50,
-      alcoholEligible: true,
-      currentOrder: '#ORD-001',
-      joinDate: '2023-06-15'
-    },
-    {
-      id: 2,
-      name: 'Sarah Lopez',
-      phone: '+1 234-567-8901',
-      status: 'busy',
-      zone: 'Midtown',
-      rating: 4.9,
-      totalDeliveries: 890,
-      completionRate: 99.2,
-      averageTime: '16 min',
-      earnings: 2150.80,
-      alcoholEligible: true,
-      currentOrder: '#ORD-002',
-      joinDate: '2023-08-20'
-    },
-    {
-      id: 3,
-      name: 'James Chen',
-      phone: '+1 234-567-8902',
-      status: 'offline',
-      zone: 'Uptown',
-      rating: 4.6,
-      totalDeliveries: 456,
-      completionRate: 95.8,
-      averageTime: '22 min',
-      earnings: 1890.30,
-      alcoholEligible: false,
-      currentOrder: null,
-      joinDate: '2024-01-10'
-    },
-    {
-      id: 4,
-      name: 'Maria Garcia',
-      phone: '+1 234-567-8903',
-      status: 'online',
-      zone: 'Suburbs',
-      rating: 4.7,
-      totalDeliveries: 678,
-      completionRate: 97.3,
-      averageTime: '20 min',
-      earnings: 2340.70,
-      alcoholEligible: true,
-      currentOrder: null,
-      joinDate: '2023-11-05'
-    },
-  ];
+  
+  const { data: riders, loading, error, updateDocument, addDocument } = useFirebaseCollection('riders');
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -101,7 +41,7 @@ export function RiderManagement() {
       case 'offline':
         return <Badge className="bg-gray-100 text-gray-800">Offline</Badge>;
       default:
-        return <Badge className="bg-gray-100 text-gray-800">Unknown</Badge>;
+        return <Badge className="bg-gray-100 text-gray-800">Offline</Badge>;
     }
   };
 
@@ -115,9 +55,28 @@ export function RiderManagement() {
     }
   };
 
+  const handleStatusToggle = async (riderId: string, currentStatus: string) => {
+    try {
+      const newStatus = currentStatus === 'online' ? 'offline' : 'online';
+      await updateDocument(riderId, { status: newStatus });
+      console.log('Rider status updated successfully');
+    } catch (error) {
+      console.error('Failed to update rider status:', error);
+    }
+  };
+
+  const handleSuspendRider = async (riderId: string) => {
+    try {
+      await updateDocument(riderId, { status: 'suspended' });
+      console.log('Rider suspended successfully');
+    } catch (error) {
+      console.error('Failed to suspend rider:', error);
+    }
+  };
+
   const filteredRiders = riders.filter(rider => 
     (filterStatus === 'all' || rider.status === filterStatus) &&
-    rider.name.toLowerCase().includes(searchTerm.toLowerCase())
+    (rider.name || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const riderStats = {
@@ -126,6 +85,22 @@ export function RiderManagement() {
     busy: riders.filter(r => r.status === 'busy').length,
     alcoholEligible: riders.filter(r => r.alcoholEligible).length,
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-lg">Loading riders...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-lg text-red-600">Error loading riders: {error}</div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -214,19 +189,21 @@ export function RiderManagement() {
                 {/* Rider Info */}
                 <div className="flex items-start gap-3">
                   <Avatar className="w-12 h-12">
-                    <AvatarFallback>{rider.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
+                    <AvatarFallback>
+                      {(rider.name || 'R').split(' ').map(n => n[0]).join('').toUpperCase()}
+                    </AvatarFallback>
                   </Avatar>
                   <div className="space-y-1">
-                    <h3 className="font-semibold text-lg">{rider.name}</h3>
+                    <h3 className="font-semibold text-lg">{rider.name || 'Unknown Rider'}</h3>
                     <div className="flex items-center gap-2 text-sm text-gray-600">
                       <Phone className="w-4 h-4" />
-                      <span>{rider.phone}</span>
+                      <span>{rider.phone || 'No phone'}</span>
                     </div>
                     <div className="flex gap-2">
                       {getStatusBadge(rider.status)}
-                      <Badge className={getZoneColor(rider.zone)}>
+                      <Badge className={getZoneColor(rider.zone || 'Downtown')}>
                         <MapPin className="w-3 h-3 mr-1" />
-                        {rider.zone}
+                        {rider.zone || 'Downtown'}
                       </Badge>
                     </div>
                     {rider.alcoholEligible && (
@@ -242,19 +219,19 @@ export function RiderManagement() {
                 <div className="space-y-3">
                   <div className="flex items-center gap-2">
                     <Star className="w-4 h-4 text-yellow-500" />
-                    <span className="font-semibold">{rider.rating}</span>
+                    <span className="font-semibold">{rider.rating || 4.5}</span>
                     <span className="text-sm text-gray-600">rating</span>
                   </div>
                   <div className="space-y-1">
                     <div className="flex justify-between text-sm">
                       <span>Completion Rate</span>
-                      <span className="font-medium">{rider.completionRate}%</span>
+                      <span className="font-medium">{rider.completionRate || 95}%</span>
                     </div>
-                    <Progress value={rider.completionRate} className="h-2" />
+                    <Progress value={rider.completionRate || 95} className="h-2" />
                   </div>
                   <div className="text-sm">
                     <span className="text-gray-600">Avg Delivery: </span>
-                    <span className="font-medium">{rider.averageTime}</span>
+                    <span className="font-medium">{rider.averageTime || '20 min'}</span>
                   </div>
                 </div>
 
@@ -262,11 +239,11 @@ export function RiderManagement() {
                 <div className="space-y-2">
                   <div className="text-sm">
                     <span className="text-gray-600">Total Deliveries: </span>
-                    <span className="font-semibold">{rider.totalDeliveries}</span>
+                    <span className="font-semibold">{rider.totalDeliveries || 0}</span>
                   </div>
                   <div className="text-sm">
                     <span className="text-gray-600">Earnings: </span>
-                    <span className="font-semibold">${rider.earnings}</span>
+                    <span className="font-semibold">${rider.earnings || 0}</span>
                   </div>
                   {rider.currentOrder && (
                     <div className="flex items-center gap-2 text-sm">
@@ -275,7 +252,7 @@ export function RiderManagement() {
                     </div>
                   )}
                   <div className="text-xs text-gray-500">
-                    Joined: {rider.joinDate}
+                    Joined: {rider.createdAt ? new Date(rider.createdAt.seconds * 1000).toLocaleDateString() : 'Unknown'}
                   </div>
                 </div>
 
@@ -293,7 +270,12 @@ export function RiderManagement() {
                       Assign Order
                     </Button>
                   )}
-                  <Button size="sm" variant="outline" className="text-red-600">
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    className="text-red-600"
+                    onClick={() => handleSuspendRider(rider.id)}
+                  >
                     Suspend
                   </Button>
                 </div>

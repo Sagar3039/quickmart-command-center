@@ -3,6 +3,7 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { useFirebaseCollection } from "@/hooks/useFirebaseData";
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -15,31 +16,76 @@ import {
 } from "lucide-react";
 
 export function DashboardOverview() {
+  const { data: orders } = useFirebaseCollection('orders');
+  const { data: users } = useFirebaseCollection('users');
+  const { data: products } = useFirebaseCollection('products');
+  const { data: riders } = useFirebaseCollection('riders');
+
   const stats = [
-    { title: 'Total Orders Today', value: '1,234', change: '+12%', trend: 'up', icon: ShoppingCart },
-    { title: 'Active Users', value: '8,543', change: '+3%', trend: 'up', icon: Users },
-    { title: 'Products in Stock', value: '2,156', change: '-2%', trend: 'down', icon: Package },
-    { title: 'Active Riders', value: '67', change: '+8%', trend: 'up', icon: Users },
+    { 
+      title: 'Total Orders Today', 
+      value: orders.length.toString(), 
+      change: '+12%', 
+      trend: 'up', 
+      icon: ShoppingCart 
+    },
+    { 
+      title: 'Active Users', 
+      value: users.filter(u => u.status === 'active' || !u.status).length.toString(), 
+      change: '+3%', 
+      trend: 'up', 
+      icon: Users 
+    },
+    { 
+      title: 'Products in Stock', 
+      value: products.length.toString(), 
+      change: '-2%', 
+      trend: 'down', 
+      icon: Package 
+    },
+    { 
+      title: 'Active Riders', 
+      value: riders.filter(r => r.status === 'online').length.toString(), 
+      change: '+8%', 
+      trend: 'up', 
+      icon: Users 
+    },
   ];
 
   const categoryStats = [
-    { name: 'Essentials', orders: 456, revenue: '$12,340', color: 'bg-blue-500' },
-    { name: 'Local Foods', orders: 234, revenue: '$8,920', color: 'bg-green-500' },
-    { name: 'Alcohol', orders: 89, revenue: '$4,560', color: 'bg-amber-500' },
+    { 
+      name: 'Essentials', 
+      orders: orders.filter(o => o.category === 'Essentials').length, 
+      revenue: `$${orders.filter(o => o.category === 'Essentials').reduce((sum, o) => sum + (o.total || 0), 0)}`, 
+      color: 'bg-blue-500' 
+    },
+    { 
+      name: 'Local Foods', 
+      orders: orders.filter(o => o.category === 'Local Foods').length, 
+      revenue: `$${orders.filter(o => o.category === 'Local Foods').reduce((sum, o) => sum + (o.total || 0), 0)}`, 
+      color: 'bg-green-500' 
+    },
+    { 
+      name: 'Alcohol', 
+      orders: orders.filter(o => o.category === 'Alcohol').length, 
+      revenue: `$${orders.filter(o => o.category === 'Alcohol').reduce((sum, o) => sum + (o.total || 0), 0)}`, 
+      color: 'bg-amber-500' 
+    },
   ];
 
-  const recentOrders = [
-    { id: '#ORD-001', customer: 'John Doe', status: 'delivered', category: 'Essentials', time: '2 min ago' },
-    { id: '#ORD-002', customer: 'Jane Smith', status: 'in-transit', category: 'Local Foods', time: '5 min ago' },
-    { id: '#ORD-003', customer: 'Mike Johnson', status: 'preparing', category: 'Alcohol', time: '8 min ago' },
-    { id: '#ORD-004', customer: 'Sarah Wilson', status: 'confirmed', category: 'Essentials', time: '12 min ago' },
-  ];
+  const recentOrders = orders.slice(0, 4).map(order => ({
+    id: `#${order.id?.slice(-6) || 'N/A'}`,
+    customer: order.customer || 'Unknown Customer',
+    status: order.status || 'confirmed',
+    category: order.category || 'Essentials',
+    time: order.createdAt ? 'Recently' : 'Unknown time'
+  }));
 
-  const lowStockItems = [
-    { name: 'Organic Milk', stock: 5, category: 'Essentials' },
-    { name: 'Fresh Bread', stock: 8, category: 'Local Foods' },
-    { name: 'Premium Wine', stock: 3, category: 'Alcohol' },
-  ];
+  const lowStockItems = products.filter(product => (product.stock || 0) < 10).slice(0, 3).map(product => ({
+    name: product.name || 'Unknown Product',
+    stock: product.stock || 0,
+    category: product.category || 'Essentials'
+  }));
 
   const getStatusBadge = (status: string) => {
     const statusConfig = {
@@ -49,7 +95,7 @@ export function DashboardOverview() {
       confirmed: { color: 'bg-gray-100 text-gray-800', icon: Clock },
     };
     
-    const config = statusConfig[status as keyof typeof statusConfig];
+    const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.confirmed;
     const Icon = config.icon;
     
     return (
@@ -118,7 +164,7 @@ export function DashboardOverview() {
                     <span>Revenue</span>
                     <span className="font-medium">{category.revenue}</span>
                   </div>
-                  <Progress value={(category.orders / 500) * 100} className="h-2" />
+                  <Progress value={(category.orders / Math.max(orders.length, 1)) * 100} className="h-2" />
                 </div>
               </div>
             ))}
@@ -134,7 +180,7 @@ export function DashboardOverview() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {recentOrders.map((order, index) => (
+              {recentOrders.length > 0 ? recentOrders.map((order, index) => (
                 <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
                   <div>
                     <p className="font-medium">{order.id}</p>
@@ -146,7 +192,9 @@ export function DashboardOverview() {
                     <p className="text-xs text-gray-500 mt-1">{order.time}</p>
                   </div>
                 </div>
-              ))}
+              )) : (
+                <p className="text-gray-500">No recent orders</p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -161,7 +209,7 @@ export function DashboardOverview() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {lowStockItems.map((item, index) => (
+              {lowStockItems.length > 0 ? lowStockItems.map((item, index) => (
                 <div key={index} className="flex items-center justify-between p-3 bg-amber-50 border border-amber-200 rounded-lg">
                   <div>
                     <p className="font-medium">{item.name}</p>
@@ -172,7 +220,9 @@ export function DashboardOverview() {
                     <p className="text-xs text-gray-500">units left</p>
                   </div>
                 </div>
-              ))}
+              )) : (
+                <p className="text-gray-500">All products are well stocked</p>
+              )}
             </div>
           </CardContent>
         </Card>

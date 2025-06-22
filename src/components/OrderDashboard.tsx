@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useFirebaseCollection } from "@/hooks/useFirebaseData";
 import { 
   Search, 
   Filter, 
@@ -19,61 +20,8 @@ import {
 export function OrderDashboard() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('all');
-
-  const orders = [
-    {
-      id: '#ORD-001',
-      customer: 'John Doe',
-      phone: '+1 234-567-8900',
-      status: 'delivered',
-      category: 'Essentials',
-      items: 3,
-      total: 24.97,
-      rider: 'Mike R.',
-      address: '123 Main St, Downtown',
-      time: '2 min ago',
-      estimatedDelivery: '15 min'
-    },
-    {
-      id: '#ORD-002',
-      customer: 'Jane Smith',
-      phone: '+1 234-567-8901',
-      status: 'in-transit',
-      category: 'Local Foods',
-      items: 2,
-      total: 18.50,
-      rider: 'Sarah L.',
-      address: '456 Oak Ave, Midtown',
-      time: '5 min ago',
-      estimatedDelivery: '8 min'
-    },
-    {
-      id: '#ORD-003',
-      customer: 'Mike Johnson',
-      phone: '+1 234-567-8902',
-      status: 'preparing',
-      category: 'Alcohol',
-      items: 1,
-      total: 24.99,
-      rider: 'Not assigned',
-      address: '789 Pine St, Uptown',
-      time: '8 min ago',
-      estimatedDelivery: '25 min'
-    },
-    {
-      id: '#ORD-004',
-      customer: 'Sarah Wilson',
-      phone: '+1 234-567-8903',
-      status: 'confirmed',
-      category: 'Essentials',
-      items: 5,
-      total: 42.30,
-      rider: 'Not assigned',
-      address: '321 Elm St, Suburbs',
-      time: '12 min ago',
-      estimatedDelivery: '30 min'
-    },
-  ];
+  
+  const { data: orders, loading, error, updateDocument } = useFirebaseCollection('orders');
 
   const statusOptions = ['all', 'confirmed', 'preparing', 'in-transit', 'delivered', 'cancelled'];
 
@@ -86,13 +34,13 @@ export function OrderDashboard() {
       cancelled: { color: 'bg-red-100 text-red-800', icon: Clock },
     };
     
-    const config = statusConfig[status as keyof typeof statusConfig];
+    const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.confirmed;
     const Icon = config.icon;
     
     return (
       <Badge className={`${config.color} flex items-center gap-1`}>
         <Icon className="w-3 h-3" />
-        {status.replace('-', ' ')}
+        {status?.replace('-', ' ') || 'confirmed'}
       </Badge>
     );
   };
@@ -106,10 +54,19 @@ export function OrderDashboard() {
     }
   };
 
+  const handleStatusUpdate = async (orderId: string, newStatus: string) => {
+    try {
+      await updateDocument(orderId, { status: newStatus });
+      console.log('Order status updated successfully');
+    } catch (error) {
+      console.error('Failed to update order status:', error);
+    }
+  };
+
   const filteredOrders = orders.filter(order => 
     (selectedStatus === 'all' || order.status === selectedStatus) &&
-    (order.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-     order.customer.toLowerCase().includes(searchTerm.toLowerCase()))
+    ((order.id || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+     (order.customer || '').toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   const statusCounts = {
@@ -118,6 +75,22 @@ export function OrderDashboard() {
     'in-transit': orders.filter(o => o.status === 'in-transit').length,
     delivered: orders.filter(o => o.status === 'delivered').length,
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-lg">Loading orders...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-lg text-red-600">Error loading orders: {error}</div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -185,16 +158,16 @@ export function OrderDashboard() {
                       {/* Order Info */}
                       <div className="space-y-2">
                         <div className="flex items-center gap-2">
-                          <span className="font-bold text-lg">{order.id}</span>
+                          <span className="font-bold text-lg">#{order.id?.slice(-6) || 'N/A'}</span>
                           {getStatusBadge(order.status)}
                         </div>
                         <div className="flex items-center gap-2 text-sm text-gray-600">
                           <User className="w-4 h-4" />
-                          <span>{order.customer}</span>
+                          <span>{order.customer || 'Unknown Customer'}</span>
                         </div>
-                        <div className="text-sm text-gray-600">{order.phone}</div>
-                        <Badge className={getCategoryColor(order.category)}>
-                          {order.category}
+                        <div className="text-sm text-gray-600">{order.phone || 'No phone'}</div>
+                        <Badge className={getCategoryColor(order.category || 'Essentials')}>
+                          {order.category || 'Essentials'}
                         </Badge>
                       </div>
 
@@ -202,30 +175,32 @@ export function OrderDashboard() {
                       <div className="space-y-2">
                         <div className="text-sm">
                           <span className="text-gray-600">Items: </span>
-                          <span className="font-medium">{order.items}</span>
+                          <span className="font-medium">{order.items || 0}</span>
                         </div>
                         <div className="text-sm">
                           <span className="text-gray-600">Total: </span>
-                          <span className="font-bold text-lg">${order.total}</span>
+                          <span className="font-bold text-lg">${order.total || 0}</span>
                         </div>
-                        <div className="text-sm text-gray-600">{order.time}</div>
+                        <div className="text-sm text-gray-600">
+                          {order.createdAt ? new Date(order.createdAt.seconds * 1000).toLocaleDateString() : 'No date'}
+                        </div>
                       </div>
 
                       {/* Delivery Info */}
                       <div className="space-y-2">
                         <div className="flex items-start gap-2 text-sm">
                           <MapPin className="w-4 h-4 text-gray-400 mt-0.5" />
-                          <span className="text-gray-600">{order.address}</span>
+                          <span className="text-gray-600">{order.address || 'No address'}</span>
                         </div>
                         <div className="flex items-center gap-2 text-sm">
                           <Truck className="w-4 h-4 text-gray-400" />
                           <span className="text-gray-600">
-                            Rider: <span className="font-medium">{order.rider}</span>
+                            Rider: <span className="font-medium">{order.rider || 'Not assigned'}</span>
                           </span>
                         </div>
                         <div className="flex items-center gap-2 text-sm">
                           <Clock className="w-4 h-4 text-gray-400" />
-                          <span className="text-gray-600">ETA: {order.estimatedDelivery}</span>
+                          <span className="text-gray-600">ETA: {order.estimatedDelivery || '30 min'}</span>
                         </div>
                       </div>
 
@@ -237,9 +212,19 @@ export function OrderDashboard() {
                         <Button size="sm" variant="outline">
                           Contact Customer
                         </Button>
+                        {order.status === 'confirmed' && (
+                          <Button size="sm" onClick={() => handleStatusUpdate(order.id, 'preparing')}>
+                            Start Preparing
+                          </Button>
+                        )}
                         {order.status === 'preparing' && (
-                          <Button size="sm">
+                          <Button size="sm" onClick={() => handleStatusUpdate(order.id, 'in-transit')}>
                             Assign Rider
+                          </Button>
+                        )}
+                        {order.status === 'in-transit' && (
+                          <Button size="sm" onClick={() => handleStatusUpdate(order.id, 'delivered')}>
+                            Mark Delivered
                           </Button>
                         )}
                       </div>
