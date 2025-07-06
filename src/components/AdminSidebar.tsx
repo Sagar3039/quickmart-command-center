@@ -1,4 +1,3 @@
-
 import React from 'react';
 import {
   Sidebar,
@@ -15,13 +14,13 @@ import {
 import { 
   LayoutDashboard, 
   Package, 
-  ShoppingCart, 
   Users, 
   User, 
   BarChart, 
   Package2, 
   Bell,
-  Settings
+  Settings,
+  ShoppingCart
 } from "lucide-react";
 
 interface AdminSidebarProps {
@@ -33,8 +32,8 @@ interface AdminSidebarProps {
 export function AdminSidebar({ activeView, setActiveView, userRole }: AdminSidebarProps) {
   const menuItems = [
     { id: 'dashboard', title: 'Dashboard', icon: LayoutDashboard, roles: ['Admin', 'Product Manager', 'Delivery Ops', 'Support'] },
+    { id: 'orders', title: 'Orders', icon: ShoppingCart, roles: ['Admin', 'Support'] },
     { id: 'products', title: 'Products', icon: Package, roles: ['Admin', 'Product Manager'] },
-    { id: 'orders', title: 'Orders', icon: ShoppingCart, roles: ['Admin', 'Delivery Ops', 'Support'] },
     { id: 'users', title: 'Users', icon: Users, roles: ['Admin', 'Support'] },
     { id: 'riders', title: 'Riders', icon: User, roles: ['Admin', 'Delivery Ops'] },
     { id: 'analytics', title: 'Analytics', icon: BarChart, roles: ['Admin'] },
