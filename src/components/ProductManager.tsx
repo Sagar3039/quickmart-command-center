@@ -25,6 +25,97 @@ import {
   RefreshCw
 } from "lucide-react";
 import { categoryExists } from '@/lib/initializeCategories';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import { GoogleMap, Marker, useLoadScript } from '@react-google-maps/api';
+import usePlacesAutocomplete, { getGeocode, getLatLng } from 'use-places-autocomplete';
+
+// Move MapLocationPicker definition here, before ProductManager
+function MapLocationPicker({ value, onChange }: { value: string, onChange: (loc: string) => void }) {
+  const { isLoaded } = useLoadScript({ googleMapsApiKey: 'AIzaSyC0aUsBjWppu-5sSvme3Zz66Ts9aFKOYRs', libraries: ['places'] });
+  const [marker, setMarker] = React.useState<{ lat: number, lng: number } | null>(null);
+  const [address, setAddress] = React.useState('');
+
+  const {
+    ready,
+    value: searchValue,
+    setValue: setSearchValue,
+    suggestions: { status, data },
+    clearSuggestions,
+  } = usePlacesAutocomplete({ debounce: 300 });
+
+  React.useEffect(() => {
+    if (value && typeof value === 'string' && value.includes(',')) {
+      const [lat, lng] = value.split(',').map(Number);
+      if (!isNaN(lat) && !isNaN(lng)) setMarker({ lat, lng });
+    }
+  }, [value]);
+
+  const handleMapClick = (e: google.maps.MapMouseEvent) => {
+    if (e.latLng) {
+      const lat = e.latLng.lat();
+      const lng = e.latLng.lng();
+      setMarker({ lat, lng });
+      onChange(`${lat},${lng}`);
+      setAddress('');
+      setSearchValue('');
+    }
+  };
+
+  const handleSelect = async (address: string) => {
+    setSearchValue(address, false);
+    setAddress(address);
+    clearSuggestions();
+    try {
+      const results = await getGeocode({ address });
+      const { lat, lng } = await getLatLng(results[0]);
+      setMarker({ lat, lng });
+      onChange(`${lat},${lng}`);
+    } catch (error) {
+      // Optionally handle error
+    }
+  };
+
+  if (!isLoaded) return <div>Loading map...</div>;
+  return (
+    <div>
+      <div className="mb-2">
+        <input
+          value={searchValue}
+          onChange={e => setSearchValue(e.target.value)}
+          placeholder="Search for a location..."
+          className="w-full border rounded px-3 py-2 text-base mb-1"
+        />
+        {status === 'OK' && (
+          <div className="bg-white border rounded shadow max-h-48 overflow-y-auto absolute z-10 w-full">
+            {data.map(({ place_id, description }) => (
+              <div
+                key={place_id}
+                className="px-3 py-2 cursor-pointer hover:bg-gray-100"
+                onClick={() => handleSelect(description)}
+              >
+                {description}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <div style={{ height: 300, width: '100%' }}>
+        <GoogleMap
+          mapContainerStyle={{ width: '100%', height: '100%' }}
+          center={marker || { lat: 19.0760, lng: 72.8777 }} // Default to Mumbai
+          zoom={marker ? 15 : 12}
+          onClick={handleMapClick}
+        >
+          {marker && <Marker position={marker} />}
+        </GoogleMap>
+        <div className="text-xs text-gray-500 mt-1">
+          {marker ? `Selected: ${marker.lat.toFixed(5)}, ${marker.lng.toFixed(5)}` : 'Click on the map or search to select a location.'}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function ProductManager() {
   const [products, setProducts] = useState<any[]>([]);
@@ -59,7 +150,10 @@ export function ProductManager() {
     preparationTime: '15-20 mins',
     inStock: true,
     tags: [] as string[],
-    newTag: ''
+    newTag: '',
+    vegType: 'veg',
+    location: '',
+    landmark: '', // NEW FIELD
   });
 
   const { toast } = useToast();
@@ -74,6 +168,8 @@ export function ProductManager() {
   const [editSubcatImage, setEditSubcatImage] = useState('');
   const [editSubcatImageFile, setEditSubcatImageFile] = useState<File | null>(null);
   const [editSubcatImagePreview, setEditSubcatImagePreview] = useState('');
+  const [isEditSubDialogOpen, setIsEditSubDialogOpen] = useState(false);
+  const [editSubcatTab, setEditSubcatTab] = useState<'emoji' | 'url'>('emoji');
 
   const [sortOption, setSortOption] = useState('updated'); // 'updated', 'price-desc', 'price-asc', 'stock-desc', 'stock-asc', 'rating'
   const [showOnlyManualProducts, setShowOnlyManualProducts] = useState(true); // Only show manually uploaded products
@@ -196,7 +292,9 @@ export function ProductManager() {
         firebaseId: product.id,
         createdAt: product.createdAt || null,
         updatedAt: product.updatedAt || null,
-        manuallyUploaded: product.manuallyUploaded || false
+        manuallyUploaded: product.manuallyUploaded || false,
+        vegType: product.vegType || 'veg', // Include vegType
+        location: product.location || '', // Include location
       }));
 
     // Remove duplicates
@@ -242,36 +340,20 @@ export function ProductManager() {
 
   // Subcategory filter bar UI (above product grid)
   const subcategoriesForCategory = React.useMemo(() => {
-    const seen = new Set<string>();
-    const subs = processedProducts
-      .filter(product => product.category === selectedCategory && product.subcategory && product.subcategory.trim() !== '')
-      .map(product => product.subcategory)
-      .filter((sub) => {
-        const lower = sub.toLowerCase();
-        if (seen.has(lower)) return false;
-        seen.add(lower);
-        return true;
-      })
-      .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
-    
-    // Get subcategory data with icons from categories collection
-    const subcategoryData = subs.map(sub => {
-      const categoryData = categoriesData.find(cat => 
-        cat.category === selectedCategory && 
-        cat.name.toLowerCase() === sub.toLowerCase()
-      );
-      return {
-        name: sub,
-        icon: categoryData?.icon || '📦',
-        displayName: categoryData?.displayName || sub
-      };
-    });
-    
+    // Get all subcategories for the selected category from categoriesData
+    const subcategoryData = categoriesData
+      .filter(cat => cat.category === selectedCategory && typeof cat.name === 'string' && cat.name.trim() !== '' && cat.name.toLowerCase() !== 'all')
+      .sort((a, b) => (a.displayName || a.name).localeCompare(b.displayName || b.name))
+      .map(cat => ({
+        name: cat.name,
+        icon: cat.icon || '📦',
+        displayName: cat.displayName || cat.name
+      }));
     return [
       { name: 'All', icon: '🌐', displayName: 'All' },
       ...subcategoryData
     ];
-  }, [processedProducts, selectedCategory, categoriesData]);
+  }, [categoriesData, selectedCategory]);
 
   // Reset subcategory filter when category changes
   React.useEffect(() => {
@@ -284,6 +366,9 @@ export function ProductManager() {
     .filter(cat => cat.category === formData.category && typeof cat.name === 'string' && cat.name.trim() !== '' && cat.name.toLowerCase() !== 'all')
     .map(cat => cat.name);
 
+  // Add state for landmark validation error
+  const [landmarkError, setLandmarkError] = useState('');
+
   const handleAddProduct = async () => {
     if (!formData.subcategory || !validSubcategories.includes(formData.subcategory)) {
       toast({
@@ -292,6 +377,12 @@ export function ProductManager() {
         variant: "destructive"
       });
       return;
+    }
+    if ((formData.category === 'food' || formData.category === 'drinks') && !formData.landmark.trim()) {
+      setLandmarkError('Landmark is required for food and drinks.');
+      return;
+    } else {
+      setLandmarkError('');
     }
     try {
       const productData = {
@@ -305,6 +396,9 @@ export function ProductManager() {
         preparationTime: formData.preparationTime,
         inStock: formData.inStock,
         tags: formData.tags,
+        vegType: formData.vegType, // Include vegType
+        location: formData.location, // Include location
+        landmark: formData.landmark, // Include landmark
         manuallyUploaded: true, // Mark as manually uploaded
         createdAt: new Date(),
         updatedAt: new Date()
@@ -329,7 +423,10 @@ export function ProductManager() {
         inStock: true, 
         tags: [], 
         newTag: '',
-        subcategory: ''
+        subcategory: '',
+        vegType: 'veg',
+        location: '',
+        landmark: '',
       });
     } catch (error) {
       toast({
@@ -349,6 +446,12 @@ export function ProductManager() {
       });
       return;
     }
+    if ((formData.category === 'food' || formData.category === 'drinks') && !formData.landmark.trim()) {
+      setLandmarkError('Landmark is required for food and drinks.');
+      return;
+    } else {
+      setLandmarkError('');
+    }
     try {
       const productData = {
         name: formData.name,
@@ -361,7 +464,9 @@ export function ProductManager() {
         preparationTime: formData.preparationTime,
         inStock: formData.inStock,
         tags: formData.tags,
-        manuallyUploaded: true, // Preserve manual upload flag
+        vegType: formData.vegType, // Include vegType
+        location: formData.location, // Include location
+        landmark: formData.landmark, // Include landmark
         updatedAt: new Date()
       };
 
@@ -385,7 +490,10 @@ export function ProductManager() {
         inStock: true, 
         tags: [], 
         newTag: '',
-        subcategory: ''
+        subcategory: '',
+        vegType: 'veg',
+        location: '',
+        landmark: '',
       });
     } catch (error) {
       toast({
@@ -517,7 +625,10 @@ export function ProductManager() {
       inStock: true, // Always set to true
       tags: product.tags || [],
       newTag: '',
-      subcategory: product.subcategory || ''
+      subcategory: product.subcategory || '',
+      vegType: product.vegType || 'veg', // Set vegType for editing
+      location: product.location || '', // Set location for editing
+      landmark: product.landmark || '', // Set landmark for editing
     });
     setIsEditDialogOpen(true);
   };
@@ -576,15 +687,26 @@ export function ProductManager() {
       toast({ title: 'Error', description: 'Subcategory name cannot be "All"', variant: 'destructive' });
       return;
     }
-    
     // Normalize the subcategory name: first letter capital, rest lowercase
     const normalizedName = trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
-    
-    const duplicate = categoriesData.some(cat => cat.category === formData.category && cat.name.toLowerCase() === normalizedName.toLowerCase());
-    if (duplicate) {
-      toast({ title: 'Error', description: 'This subcategory already exists', variant: 'destructive' });
+
+    // Firestore duplicate check
+    try {
+      const q = query(
+        collection(db, 'categories'),
+        where('category', '==', formData.category),
+        where('name', '==', normalizedName)
+      );
+      const snapshot = await getDocs(q);
+      if (!snapshot.empty) {
+        toast({ title: 'Error', description: 'This subcategory already exists', variant: 'destructive' });
+        return;
+      }
+    } catch (err) {
+      toast({ title: 'Error', description: 'Failed to check for duplicates', variant: 'destructive' });
       return;
     }
+
     let icon = newSubcategoryTab === 'emoji' ? newSubcategoryIcon : newSubcategoryImage;
     if (!icon) icon = '🍽️';
     try {
@@ -734,7 +856,14 @@ export function ProductManager() {
                         .filter(cat => cat.category === formData.category && typeof cat.name === 'string' && cat.name.trim() !== '' && cat.name.toLowerCase() !== 'all')
                         .sort((a, b) => (a.displayName || a.name).localeCompare(b.displayName || b.name))
                         .map(cat => (
-                          <SelectItem key={cat.id} value={cat.name}>{cat.displayName || cat.name}</SelectItem>
+                          <SelectItem key={cat.id} value={cat.name}>
+                            {cat.icon && cat.icon.startsWith('http') ? (
+                              <img src={cat.icon} alt={cat.displayName || cat.name} className="w-4 h-4 mr-2 object-contain inline-block align-middle" />
+                            ) : (
+                              <span className="mr-2 align-middle">{cat.icon}</span>
+                            )}
+                            {cat.displayName || cat.name}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -804,6 +933,23 @@ export function ProductManager() {
               )}
 
                 <div>
+                  <Label htmlFor="vegType">Veg/Non-Veg</Label>
+                  <Select
+                    value={formData.vegType}
+                    onValueChange={val => setFormData({ ...formData, vegType: val })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="veg">Veg</SelectItem>
+                      <SelectItem value="non-veg">Non-Veg</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                
+                <div>
                   <Label htmlFor="stock">Stock Quantity</Label>
                   <Input
                     id="stock"
@@ -868,6 +1014,28 @@ export function ProductManager() {
                     <Tag className="w-4 h-4" />
                   </Button>
                 </div>
+                {(formData.category === 'food' || formData.category === 'drinks') && (
+                  <>
+                    <div className="mb-4">
+                      <Label htmlFor="landmark">Landmark</Label>
+                      <Input
+                        id="landmark"
+                        value={formData.landmark}
+                        onChange={e => setFormData({ ...formData, landmark: e.target.value })}
+                        placeholder="Enter a nearby landmark (required)"
+                        required
+                      />
+                      {landmarkError && <div className="text-red-600 text-xs mt-1">{landmarkError}</div>}
+                    </div>
+                    <div className="mb-4">
+                      <MapLocationPicker
+                        value={formData.location}
+                        onChange={loc => setFormData({ ...formData, location: loc })}
+                      />
+                    </div>
+                  </>
+                )}
+
                 <div className="flex flex-wrap gap-2">
                   {formData.tags.map((tag, index) => (
                     <Badge key={index} variant="secondary" className="cursor-pointer" onClick={() => removeTag(tag)}>
@@ -939,7 +1107,14 @@ export function ProductManager() {
                       .filter(cat => cat.category === formData.category && typeof cat.name === 'string' && cat.name.trim() !== '' && cat.name.toLowerCase() !== 'all')
                       .sort((a, b) => (a.displayName || a.name).localeCompare(b.displayName || b.name))
                       .map(cat => (
-                        <SelectItem key={cat.id} value={cat.name}>{cat.displayName || cat.name}</SelectItem>
+                        <SelectItem key={cat.id} value={cat.name}>
+                          {cat.icon && cat.icon.startsWith('http') ? (
+                            <img src={cat.icon} alt={cat.displayName || cat.name} className="w-4 h-4 mr-2 object-contain inline-block align-middle" />
+                          ) : (
+                            <span className="mr-2 align-middle">{cat.icon}</span>
+                          )}
+                          {cat.displayName || cat.name}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -1007,6 +1182,44 @@ export function ProductManager() {
                 </div>
               </div>
             )}
+
+              <div>
+                <Label htmlFor="edit-vegType">Veg/Non-Veg</Label>
+                <Select
+                  value={formData.vegType}
+                  onValueChange={val => setFormData({ ...formData, vegType: val })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="veg">Veg</SelectItem>
+                    <SelectItem value="non-veg">Non-Veg</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {(formData.category === 'food' || formData.category === 'drinks') && (
+                <>
+                  <div className="mb-4">
+                    <Label htmlFor="landmark">Landmark</Label>
+                    <Input
+                      id="landmark"
+                      value={formData.landmark}
+                      onChange={e => setFormData({ ...formData, landmark: e.target.value })}
+                      placeholder="Enter a nearby landmark (required)"
+                      required
+                    />
+                    {landmarkError && <div className="text-red-600 text-xs mt-1">{landmarkError}</div>}
+                  </div>
+                  <div className="mb-4">
+                    <MapLocationPicker
+                      value={formData.location}
+                      onChange={loc => setFormData({ ...formData, location: loc })}
+                    />
+                  </div>
+                </>
+              )}
 
               <div>
                 <Label htmlFor="edit-stock">Stock Quantity</Label>
@@ -1118,7 +1331,11 @@ export function ProductManager() {
                     <div key={subcat.id} className="flex items-center justify-between p-4 border rounded-lg bg-gray-50">
                       <div className="flex items-center gap-3">
                         <div className="text-2xl">
-                          {subcat.icon || '📦'}
+                          {subcat.icon && subcat.icon.startsWith('http') ? (
+                            <img src={subcat.icon} alt={subcat.displayName || subcat.name} className="w-8 h-8 object-contain rounded border bg-white" />
+                          ) : (
+                            subcat.icon || '📦'
+                          )}
                         </div>
                         <div>
                           <h4 className="font-medium">{subcat.displayName || subcat.name}</h4>
@@ -1128,6 +1345,23 @@ export function ProductManager() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setEditingSubcat(subcat);
+                            setEditSubcatName(subcat.displayName || subcat.name);
+                            setEditSubcatIcon(subcat.icon || '');
+                            setEditSubcatImage('');
+                            setEditSubcatImageFile(null);
+                            setEditSubcatImagePreview('');
+                            setEditSubcatTab('emoji');
+                            setIsEditSubDialogOpen(true);
+                          }}
+                          title="Edit Subcategory"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </Button>
                         <Button
                           size="sm"
                           variant="destructive"
@@ -1144,6 +1378,114 @@ export function ProductManager() {
                 })}
               </div>
             )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Subcategory Dialog */}
+      <Dialog open={isEditSubDialogOpen} onOpenChange={setIsEditSubDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Subcategory</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Label htmlFor="edit-subcat-name">Name</Label>
+            <Input
+              id="edit-subcat-name"
+              value={editSubcatName}
+              onChange={e => setEditSubcatName(e.target.value)}
+              placeholder="Subcategory name"
+            />
+            <div className="flex gap-2 mt-2">
+              <Button type="button" size="sm" variant={editSubcatTab === 'emoji' ? 'default' : 'outline'} onClick={() => setEditSubcatTab('emoji')}>Emoji</Button>
+              <Button type="button" size="sm" variant={editSubcatTab === 'url' ? 'default' : 'outline'} onClick={() => setEditSubcatTab('url')}>Image URL</Button>
+            </div>
+            {editSubcatTab === 'emoji' ? (
+              <div className="grid grid-cols-8 gap-1 p-2 max-h-32 overflow-y-auto border rounded">
+                {foodIcons.map((icon, index) => (
+                  <Button key={index} type="button" size="sm" variant={editSubcatIcon === icon ? 'default' : 'ghost'} className="text-lg p-1" onClick={() => setEditSubcatIcon(icon)}>
+                    {icon}
+                  </Button>
+                ))}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Input
+                  value={editSubcatImage}
+                  onChange={e => setEditSubcatImage(e.target.value)}
+                  placeholder="Paste image/logo URL"
+                  className="flex-1"
+                />
+                {editSubcatImage && (
+                  <img
+                    src={editSubcatImage}
+                    alt="Preview"
+                    className="w-8 h-8 object-contain rounded border"
+                    onError={e => { (e.target as HTMLImageElement).src = ''; setEditSubcatImage(''); toast({ title: 'Error', description: 'Invalid image URL', variant: 'destructive' }); }}
+                  />
+                )}
+              </div>
+            )}
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-sm text-gray-500">Preview:</span>
+              {editSubcatTab === 'emoji' ? (
+                <span className="text-2xl">{editSubcatIcon}</span>
+              ) : (
+                editSubcatImage && <img src={editSubcatImage} alt="Preview" className="w-8 h-8 object-contain rounded border" />
+              )}
+            </div>
+            <div className="flex gap-3 mt-4">
+              <Button
+                variant="default"
+                onClick={async () => {
+                  if (!editSubcatName.trim()) {
+                    toast({ title: 'Error', description: 'Please enter a subcategory name', variant: 'destructive' });
+                    return;
+                  }
+                  let icon = editSubcatTab === 'emoji' ? editSubcatIcon : editSubcatImage;
+                  if (!icon) icon = '🍽️';
+                  const normalizedName = editSubcatName.trim().charAt(0).toUpperCase() + editSubcatName.trim().slice(1);
+                  // Only check for duplicate if the name is actually changing
+                  const isNameChanging = normalizedName.toLowerCase() !== (editingSubcat.name || '').toLowerCase();
+                  const duplicate = isNameChanging && categoriesData.some(cat => cat.category === editingSubcat.category && cat.name.toLowerCase() === normalizedName.toLowerCase() && cat.id !== editingSubcat.id);
+                  if (duplicate) {
+                    toast({ title: 'Error', description: 'This subcategory already exists', variant: 'destructive' });
+                    return;
+                  }
+                  try {
+                    await updateCategoryDocument(editingSubcat.id, {
+                      name: normalizedName,
+                      displayName: normalizedName,
+                      icon,
+                      updatedAt: new Date()
+                    });
+                    // If name changed, update all products using old subcategory name
+                    if (normalizedName !== editingSubcat.name) {
+                      const productsToUpdate = productsData.filter(product => product.category === editingSubcat.category && product.subcategory && product.subcategory.toLowerCase() === editingSubcat.name.toLowerCase());
+                      await Promise.all(productsToUpdate.map(product => updateDocument(product.id, { subcategory: normalizedName })));
+                    }
+                    toast({ title: 'Success', description: 'Subcategory updated' });
+                    setIsEditSubDialogOpen(false);
+                    setEditingSubcat(null);
+                  } catch (error) {
+                    toast({ title: 'Error', description: 'Failed to update subcategory', variant: 'destructive' });
+                  }
+                }}
+                className="flex-1"
+              >
+                Save
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setIsEditSubDialogOpen(false);
+                  setEditingSubcat(null);
+                }}
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -1414,5 +1756,3 @@ export function ProductManager() {
     </div>
   );
 }
-
-export default ProductManager;

@@ -17,10 +17,21 @@ import {
   Pause,
   Target
 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useFirebaseCollection } from "@/hooks/useFirebaseData";
 
 export function PromoManager() {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState('banners');
+  const [promoDialogOpen, setPromoDialogOpen] = useState(false);
+  const [promoForm, setPromoForm] = useState({
+    code: '',
+    discountType: 'percentage',
+    discountValue: '',
+  });
+  const { data: promocodes, addDocument: addPromocode, deleteDocument: deletePromocode, loading: loadingPromos } = useFirebaseCollection('promocodes');
+  const [promoError, setPromoError] = useState('');
 
   const promoBanners = [
     {
@@ -146,16 +157,17 @@ export function PromoManager() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">Promotions & Marketing</h1>
-        <Button className="flex items-center gap-2">
+        <Button className="flex items-center gap-2" onClick={() => setPromoDialogOpen(true)}>
           <Plus className="w-4 h-4" />
-          Create Campaign
+          Add Promocode
         </Button>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="banners">Promo Banners</TabsTrigger>
           <TabsTrigger value="notifications">Push Notifications</TabsTrigger>
+          <TabsTrigger value="promocodes">Promocodes</TabsTrigger>
         </TabsList>
 
         <TabsContent value="banners" className="space-y-6">
@@ -433,6 +445,115 @@ export function PromoManager() {
                 </CardContent>
               </Card>
             ))}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="promocodes" className="space-y-6">
+          <div className="flex justify-between items-center">
+            <h2 className="text-2xl font-bold">Promocode Management</h2>
+            <Dialog open={promoDialogOpen} onOpenChange={setPromoDialogOpen}>
+              <DialogTrigger asChild>
+                <Button className="flex items-center gap-2">
+                  <Plus className="w-4 h-4" />
+                  Add Promocode
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Add Promocode</DialogTitle>
+                </DialogHeader>
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    setPromoError('');
+                    if (!promoForm.code || !promoForm.discountValue) {
+                      setPromoError('Please fill all fields.');
+                      return;
+                    }
+                    try {
+                      await addPromocode({
+                        code: promoForm.code.trim(),
+                        discountType: promoForm.discountType,
+                        discountValue: parseFloat(promoForm.discountValue),
+                        status: 'active',
+                      });
+                      setPromoForm({ code: '', discountType: 'percentage', discountValue: '' });
+                      setPromoDialogOpen(false);
+                    } catch (err) {
+                      setPromoError('Failed to add promocode.');
+                    }
+                  }}
+                  className="space-y-4"
+                >
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Code</label>
+                    <Input
+                      value={promoForm.code}
+                      onChange={e => setPromoForm(f => ({ ...f, code: e.target.value }))}
+                      placeholder="PROMO2024"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Discount Type</label>
+                    <Select
+                      value={promoForm.discountType}
+                      onValueChange={val => setPromoForm(f => ({ ...f, discountType: val }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="percentage">Percentage (%)</SelectItem>
+                        <SelectItem value="fixed">Fixed Amount</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Discount Value</label>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={promoForm.discountValue}
+                      onChange={e => setPromoForm(f => ({ ...f, discountValue: e.target.value }))}
+                      placeholder={promoForm.discountType === 'percentage' ? '10 (for 10%)' : '100 (for $100)'}
+                      required
+                    />
+                  </div>
+                  {promoError && <div className="text-red-600 text-sm">{promoError}</div>}
+                  <div className="flex justify-end gap-2">
+                    <DialogClose asChild>
+                      <Button type="button" variant="outline">Cancel</Button>
+                    </DialogClose>
+                    <Button type="submit">Add</Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
+          <div className="space-y-4">
+            {loadingPromos ? (
+              <div>Loading promocodes...</div>
+            ) : promocodes.length === 0 ? (
+              <div className="text-gray-500">No promocodes added yet.</div>
+            ) : (
+              promocodes.map((promo: any) => (
+                <Card key={promo.id} className="flex flex-col md:flex-row md:items-center md:justify-between p-4">
+                  <div className="flex flex-col md:flex-row md:items-center gap-4">
+                    <div className="font-mono text-lg font-bold">{promo.code}</div>
+                    <div className="text-sm text-gray-600">
+                      {promo.discountType === 'percentage' ? `${promo.discountValue}% off` : `$${promo.discountValue} off`}
+                    </div>
+                    <Badge className="ml-2">{promo.status || 'active'}</Badge>
+                  </div>
+                  <div className="flex gap-2 mt-2 md:mt-0">
+                    <Button size="sm" variant="outline" onClick={() => deletePromocode(promo.id)}>
+                      <Trash2 className="w-4 h-4 mr-1" /> Delete
+                    </Button>
+                  </div>
+                </Card>
+              ))
+            )}
           </div>
         </TabsContent>
       </Tabs>
