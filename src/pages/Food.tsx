@@ -10,6 +10,7 @@ import { subscribeToProductsByCategory, PRODUCT_CATEGORIES, PRODUCT_SUBCATEGORIE
 import { useTheme } from '@/App';
 import { useFirebaseCollection } from '@/hooks/useFirebaseData';
 import { initializeCategories } from '@/lib/initializeCategories';
+import { compareSubcategories } from '@/lib/utils';
 
 const Food = () => {
   const navigate = useNavigate();
@@ -38,15 +39,20 @@ const Food = () => {
     // Combine default categories with Firestore categories and product subcategories
     const combinedCategories = [...new Set([...defaultCategories, ...firestoreCategories, ...allSubcategories])];
     
+    // Sort categories alphabetically (excluding 'All')
+    const sortedCategories = combinedCategories
+      .filter(cat => cat.toLowerCase() !== 'all')
+      .sort((a, b) => a.localeCompare(b));
+    
     console.log('Categories Debug:', {
       defaultCategories,
       firestoreCategories,
       allSubcategories,
-      combinedCategories,
+      combinedCategories: sortedCategories,
       categoriesDataLength: categoriesData.length
     });
     
-    return ['All', ...combinedCategories];
+    return ['All', ...sortedCategories];
   };
 
   const foodCategories = getDynamicCategories();
@@ -74,7 +80,17 @@ const Food = () => {
 
   const filteredProducts = products.filter(product => {
     const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesCategory = activeCategory === 'All' || product.subcategory === activeCategory;
+    
+    // Enhanced subcategory matching with better case handling
+    let matchesCategory = true;
+    if (activeCategory !== 'All') {
+      if (!product.subcategory) {
+        matchesCategory = false;
+      } else {
+        // Use utility function for consistent comparison
+        matchesCategory = compareSubcategories(product.subcategory, activeCategory);
+      }
+    }
     
     // Debug logging
     if (activeCategory !== 'All') {
@@ -159,7 +175,21 @@ const Food = () => {
   useEffect(() => {
     console.log('Categories data updated:', categoriesData);
     console.log('Categories loading:', categoriesLoading);
-  }, [categoriesData, categoriesLoading]);
+    
+    // Debug: Log all products and their subcategories
+    console.log('All products and their subcategories:');
+    products.forEach(product => {
+      console.log(`Product: ${product.name}, Subcategory: "${product.subcategory}"`);
+    });
+    
+    // Debug: Log all available subcategories
+    const allSubcategories = [...new Set(products.map(p => p.subcategory).filter(Boolean))];
+    console.log('All available subcategories:', allSubcategories);
+    
+    // Debug: Log food categories from Firestore
+    const firestoreFoodCategories = categoriesData.filter(cat => cat.category === 'food');
+    console.log('Firestore food categories:', firestoreFoodCategories);
+  }, [categoriesData, categoriesLoading, products]);
 
   return (
     <div className="min-h-screen bg-white dark:bg-gray-900">
@@ -254,6 +284,26 @@ const Food = () => {
                   {categoriesData.map((cat, i) => (
                     <span key={i} className="inline-block mr-2 mb-1 px-2 py-1 bg-blue-100 dark:bg-blue-900 rounded">
                       {cat.name} ({cat.category})
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div className="mt-2">
+                <strong>Product Subcategories:</strong>
+                <div className="max-h-20 overflow-y-auto">
+                  {[...new Set(products.map(p => p.subcategory).filter(Boolean))].map((subcat, i) => (
+                    <span key={i} className="inline-block mr-2 mb-1 px-2 py-1 bg-green-100 dark:bg-green-900 rounded">
+                      "{subcat}"
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div className="mt-2">
+                <strong>Sidebar Categories:</strong>
+                <div className="max-h-20 overflow-y-auto">
+                  {foodCategories.map((cat, i) => (
+                    <span key={i} className="inline-block mr-2 mb-1 px-2 py-1 bg-yellow-100 dark:bg-yellow-900 rounded">
+                      "{cat}"
                     </span>
                   ))}
                 </div>

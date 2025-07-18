@@ -27,6 +27,8 @@ import {
 import { categoryExists } from '@/lib/initializeCategories';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { cleanupDuplicateSubcategories } from '@/lib/cleanupDuplicateSubcategories';
+import { normalizeSubcategoryName, compareSubcategories } from '@/lib/utils';
 import { GoogleMap, Marker, useLoadScript } from '@react-google-maps/api';
 import usePlacesAutocomplete, { getGeocode, getLatLng } from 'use-places-autocomplete';
 
@@ -244,18 +246,26 @@ export function ProductManager() {
         label: sub.charAt(0).toUpperCase() + sub.slice(1)
       }));
     }
+    
     // Get custom subcategories from Firestore categories collection
     const firestoreCategories = categoriesData
-      .filter(cat => cat.category === category && typeof cat.name === 'string' && cat.name.trim() !== "")
+      .filter(cat => cat.category === category && typeof cat.name === 'string' && cat.name.trim() !== "" && cat.name.toLowerCase() !== 'all')
       .map(cat => ({
         value: cat.name,
         label: cat.icon ? `${cat.icon} ${cat.displayName || cat.name}` : cat.displayName || cat.name
       }));
+    
     // Combine base and Firestore categories, removing duplicates (case-insensitive)
     const allCategories = [...baseSubcategories, ...firestoreCategories];
-    const uniqueCategories = allCategories.filter((cat, index, self) => 
-      index === self.findIndex(c => typeof c.value === 'string' && c.value.trim() !== '' && c.value.toLowerCase() === cat.value.toLowerCase())
-    );
+    const uniqueCategories = allCategories.filter((cat, index, self) => {
+      if (typeof cat.value !== 'string' || cat.value.trim() === '') return false;
+      return index === self.findIndex(c => 
+        typeof c.value === 'string' && 
+        c.value.trim() !== '' && 
+        c.value.toLowerCase() === cat.value.toLowerCase()
+      );
+    });
+    
     return uniqueCategories;
   }, [categoriesData]);
 
@@ -297,10 +307,17 @@ export function ProductManager() {
         location: product.location || '', // Include location
       }));
 
-    // Remove duplicates
+    // Remove duplicates - use both ID and name to ensure uniqueness
     const unique = Array.from(
       new Map(transformed.map(p => [p.firebaseId, p])).values()
-    );
+    ).filter((product, index, self) => {
+      // Additional check to remove any remaining duplicates by name and category
+      return index === self.findIndex(p => 
+        p.firebaseId === product.firebaseId && 
+        p.name === product.name && 
+        p.category === product.category
+      );
+    });
 
     // Sort products
     const sorted = unique.sort((a, b) => {
@@ -342,13 +359,20 @@ export function ProductManager() {
   const subcategoriesForCategory = React.useMemo(() => {
     // Get all subcategories for the selected category from categoriesData
     const subcategoryData = categoriesData
-      .filter(cat => cat.category === selectedCategory && typeof cat.name === 'string' && cat.name.trim() !== '' && cat.name.toLowerCase() !== 'all')
+      .filter(cat => 
+        cat.category === selectedCategory && 
+        typeof cat.name === 'string' && 
+        cat.name.trim() !== '' && 
+        cat.name.toLowerCase() !== 'all'
+      )
       .sort((a, b) => (a.displayName || a.name).localeCompare(b.displayName || b.name))
       .map(cat => ({
         name: cat.name,
         icon: cat.icon || '📦',
         displayName: cat.displayName || cat.name
       }));
+    
+    // Add "All" option at the beginning
     return [
       { name: 'All', icon: '🌐', displayName: 'All' },
       ...subcategoryData
@@ -370,7 +394,8 @@ export function ProductManager() {
   const [landmarkError, setLandmarkError] = useState('');
 
   const handleAddProduct = async () => {
-    if (!formData.subcategory || !validSubcategories.includes(formData.subcategory)) {
+    // Enhanced validation for subcategory
+    if (!formData.subcategory || formData.subcategory.trim() === '') {
       toast({
         title: "Error",
         description: "Please select a valid subcategory",
@@ -378,17 +403,37 @@ export function ProductManager() {
       });
       return;
     }
+
+    // Check if the selected subcategory exists in the categories collection
+    const subcategoryExists = categoriesData.some(cat => 
+      cat.category === formData.category && 
+      cat.name.toLowerCase() === formData.subcategory.toLowerCase()
+    );
+
+    if (!subcategoryExists) {
+      toast({
+        title: "Error",
+        description: "Selected subcategory does not exist. Please create it first or select a valid subcategory.",
+        variant: "destructive"
+      });
+      return;
+    }
+
     if ((formData.category === 'food' || formData.category === 'drinks') && !formData.landmark.trim()) {
       setLandmarkError('Landmark is required for food and drinks.');
       return;
     } else {
       setLandmarkError('');
     }
+
     try {
+      // Normalize the subcategory name to match the stored format
+      const normalizedSubcategory = normalizeSubcategoryName(formData.subcategory);
+      
       const productData = {
         name: formData.name,
         category: formData.category,
-        subcategory: formData.subcategory,
+        subcategory: normalizedSubcategory,
         price: parseFloat(formData.price),
         stock: parseInt(formData.stock),
         image: formData.image,
@@ -396,10 +441,10 @@ export function ProductManager() {
         preparationTime: formData.preparationTime,
         inStock: formData.inStock,
         tags: formData.tags,
-        vegType: formData.vegType, // Include vegType
-        location: formData.location, // Include location
-        landmark: formData.landmark, // Include landmark
-        manuallyUploaded: true, // Mark as manually uploaded
+        vegType: formData.vegType,
+        location: formData.location,
+        landmark: formData.landmark,
+        manuallyUploaded: true,
         createdAt: new Date(),
         updatedAt: new Date()
       };
@@ -429,6 +474,7 @@ export function ProductManager() {
         landmark: '',
       });
     } catch (error) {
+      console.error('Error adding product:', error);
       toast({
         title: "Error",
         description: "Failed to add product",
@@ -438,7 +484,8 @@ export function ProductManager() {
   };
 
   const handleEditProduct = async () => {
-    if (!formData.subcategory || !validSubcategories.includes(formData.subcategory)) {
+    // Enhanced validation for subcategory
+    if (!formData.subcategory || formData.subcategory.trim() === '') {
       toast({
         title: "Error",
         description: "Please select a valid subcategory",
@@ -446,17 +493,37 @@ export function ProductManager() {
       });
       return;
     }
+
+    // Check if the selected subcategory exists in the categories collection
+    const subcategoryExists = categoriesData.some(cat => 
+      cat.category === formData.category && 
+      cat.name.toLowerCase() === formData.subcategory.toLowerCase()
+    );
+
+    if (!subcategoryExists) {
+      toast({
+        title: "Error",
+        description: "Selected subcategory does not exist. Please create it first or select a valid subcategory.",
+        variant: "destructive"
+      });
+      return;
+    }
+
     if ((formData.category === 'food' || formData.category === 'drinks') && !formData.landmark.trim()) {
       setLandmarkError('Landmark is required for food and drinks.');
       return;
     } else {
       setLandmarkError('');
     }
+
     try {
+      // Normalize the subcategory name to match the stored format
+      const normalizedSubcategory = normalizeSubcategoryName(formData.subcategory);
+      
       const productData = {
         name: formData.name,
         category: formData.category,
-        subcategory: formData.subcategory,
+        subcategory: normalizedSubcategory,
         price: parseFloat(formData.price),
         stock: parseInt(formData.stock),
         image: formData.image,
@@ -464,9 +531,9 @@ export function ProductManager() {
         preparationTime: formData.preparationTime,
         inStock: formData.inStock,
         tags: formData.tags,
-        vegType: formData.vegType, // Include vegType
-        location: formData.location, // Include location
-        landmark: formData.landmark, // Include landmark
+        vegType: formData.vegType,
+        location: formData.location,
+        landmark: formData.landmark,
         updatedAt: new Date()
       };
 
@@ -496,6 +563,7 @@ export function ProductManager() {
         landmark: '',
       });
     } catch (error) {
+      console.error('Error updating product:', error);
       toast({
         title: "Error",
         description: "Failed to update product",
@@ -612,6 +680,47 @@ export function ProductManager() {
     });
   };
 
+  const showDuplicateProducts = () => {
+    console.log('=== CHECKING FOR DUPLICATE PRODUCTS ===');
+    
+    // Group products by name and category
+    const productGroups = new Map();
+    productsData.forEach(product => {
+      const key = `${product.name.toLowerCase()}-${product.category}`;
+      if (!productGroups.has(key)) {
+        productGroups.set(key, []);
+      }
+      productGroups.get(key).push(product);
+    });
+
+    let duplicateCount = 0;
+    for (const [key, products] of productGroups.entries()) {
+      if (products.length > 1) {
+        duplicateCount++;
+        console.log(`\nDuplicate group: ${key}`);
+        products.forEach((product, index) => {
+          console.log(`  ${index + 1}. ${product.name} (ID: ${product.id})`);
+          console.log(`     - Category: ${product.category}`);
+          console.log(`     - Subcategory: ${product.subcategory}`);
+          console.log(`     - Updated: ${product.updatedAt}`);
+        });
+      }
+    }
+
+    if (duplicateCount === 0) {
+      console.log('No duplicate products found!');
+    } else {
+      console.log(`\nFound ${duplicateCount} groups of duplicate products`);
+    }
+
+    toast({
+      title: "Duplicate Check",
+      description: duplicateCount > 0 
+        ? `Found ${duplicateCount} groups of duplicate products. Check console for details.`
+        : "No duplicate products found!"
+    });
+  };
+
   const openEditDialog = (product: any) => {
     setEditingProduct(product);
     setFormData({
@@ -687,28 +796,48 @@ export function ProductManager() {
       toast({ title: 'Error', description: 'Subcategory name cannot be "All"', variant: 'destructive' });
       return;
     }
-    // Normalize the subcategory name: first letter capital, rest lowercase
-    const normalizedName = trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
+    // Normalize the subcategory name using utility function
+    const normalizedName = normalizeSubcategoryName(trimmed);
 
-    // Firestore duplicate check
+    // Enhanced duplicate check - check both Firestore and local state
     try {
+      // Check Firestore for case-insensitive matches
       const q = query(
         collection(db, 'categories'),
-        where('category', '==', formData.category),
-        where('name', '==', normalizedName)
+        where('category', '==', formData.category)
       );
       const snapshot = await getDocs(q);
-      if (!snapshot.empty) {
-        toast({ title: 'Error', description: 'This subcategory already exists', variant: 'destructive' });
+      
+      // Check for case-insensitive duplicates in Firestore
+      const firestoreDuplicates = snapshot.docs.filter(doc => {
+        const data = doc.data();
+        return data.name && data.name.toLowerCase() === normalizedName.toLowerCase();
+      });
+      
+      if (firestoreDuplicates.length > 0) {
+        toast({ title: 'Error', description: 'This subcategory already exists (case-insensitive)', variant: 'destructive' });
+        return;
+      }
+
+      // Check for case-insensitive duplicates in local state
+      const existingSubcategory = categoriesData.find(cat => 
+        cat.category === formData.category && 
+        cat.name.toLowerCase() === normalizedName.toLowerCase()
+      );
+      
+      if (existingSubcategory) {
+        toast({ title: 'Error', description: 'A subcategory with this name already exists (case-insensitive)', variant: 'destructive' });
         return;
       }
     } catch (err) {
+      console.error('Error checking for duplicates:', err);
       toast({ title: 'Error', description: 'Failed to check for duplicates', variant: 'destructive' });
       return;
     }
 
     let icon = newSubcategoryTab === 'emoji' ? newSubcategoryIcon : newSubcategoryImage;
     if (!icon) icon = '🍽️';
+    
     try {
       const categoryData: CategoryDoc = {
         name: normalizedName,
@@ -727,6 +856,7 @@ export function ProductManager() {
       setNewSubcategoryTab('emoji');
       setFormData(prev => ({ ...prev, subcategory: normalizedName }));
     } catch (error) {
+      console.error('Error adding subcategory:', error);
       toast({ title: 'Error', description: 'Failed to add subcategory', variant: 'destructive' });
     }
   };
@@ -767,6 +897,78 @@ export function ProductManager() {
     } catch (error) {
       console.error('Error deleting subcategory:', error);
       toast({ title: 'Error', description: 'Failed to delete subcategory', variant: 'destructive' });
+    }
+  };
+
+  // Add cleanup function for duplicate subcategories
+  const handleCleanupDuplicates = async () => {
+    try {
+      toast({ title: 'Info', description: 'Starting duplicate cleanup...' });
+      const deletedCount = await cleanupDuplicateSubcategories();
+      toast({ 
+        title: 'Success', 
+        description: deletedCount > 0 
+          ? `Cleaned up ${deletedCount} duplicate subcategories` 
+          : 'No duplicate subcategories found'
+      });
+    } catch (error) {
+      console.error('Error during cleanup:', error);
+      toast({ title: 'Error', description: 'Failed to cleanup duplicates', variant: 'destructive' });
+    }
+  };
+
+  // Add cleanup function for duplicate products
+  const handleCleanupDuplicateProducts = async () => {
+    try {
+      toast({ title: 'Info', description: 'Starting duplicate product cleanup...' });
+      
+      // Group products by name and category to find duplicates
+      const productGroups = new Map();
+      productsData.forEach(product => {
+        const key = `${product.name.toLowerCase()}-${product.category}`;
+        if (!productGroups.has(key)) {
+          productGroups.set(key, []);
+        }
+        productGroups.get(key).push(product);
+      });
+
+      let deletedCount = 0;
+      const deletePromises = [];
+
+      // Delete duplicates, keeping the most recent one
+      for (const [key, products] of productGroups.entries()) {
+        if (products.length > 1) {
+          // Sort by updatedAt (most recent first)
+          products.sort((a, b) => {
+            const aTime = a.updatedAt ? new Date(a.updatedAt).getTime() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+            const bTime = b.updatedAt ? new Date(b.updatedAt).getTime() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+            return bTime - aTime;
+          });
+
+          // Keep the first (most recent) one, delete the rest
+          const toDelete = products.slice(1);
+          toDelete.forEach(product => {
+            deletePromises.push(deleteDocument(product.id));
+            deletedCount++;
+          });
+        }
+      }
+
+      if (deletePromises.length > 0) {
+        await Promise.all(deletePromises);
+        toast({ 
+          title: 'Success', 
+          description: `Cleaned up ${deletedCount} duplicate products`
+        });
+      } else {
+        toast({ 
+          title: 'Success', 
+          description: 'No duplicate products found'
+        });
+      }
+    } catch (error) {
+      console.error('Error during product cleanup:', error);
+      toast({ title: 'Error', description: 'Failed to cleanup duplicate products', variant: 'destructive' });
     }
   };
 
@@ -1618,12 +1820,42 @@ export function ProductManager() {
               <Button 
                 variant="outline" 
                 size="sm" 
+                onClick={handleCleanupDuplicates}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg"
+                title="Clean up duplicate subcategories"
+              >
+                <Package className="w-4 h-4" />
+                Clean Subcategories
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={handleCleanupDuplicateProducts}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg"
+                title="Clean up duplicate products"
+              >
+                <Trash2 className="w-4 h-4" />
+                Clean Products
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm" 
                 onClick={() => window.location.reload()}
               className="flex items-center gap-2 px-4 py-2 rounded-lg"
                 title="Refresh page to ensure latest data"
               >
                 <RefreshCw className="w-4 h-4" />
                 Refresh
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={showDuplicateProducts}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg"
+                title="Check for duplicate products (console log)"
+              >
+                <AlertTriangle className="w-4 h-4 text-yellow-500" />
+                Check Duplicates
               </Button>
             </div>
           </div>
@@ -1664,11 +1896,27 @@ export function ProductManager() {
 
       {/* Product Grid */}
       {(() => {
-        const categoryProducts = processedProducts.filter(product =>
-          product.category === selectedCategory &&
-          (selectedSubcategory === 'All' || (product.subcategory && product.subcategory.toLowerCase() === selectedSubcategory.toLowerCase())) &&
-          product.name.toLowerCase().includes(searchTerm.toLowerCase())
-        );
+        const categoryProducts = processedProducts.filter(product => {
+          const matchesCategory = product.category === selectedCategory;
+          const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase());
+          
+          // Enhanced subcategory matching with better case handling
+          let matchesSubcategory = true;
+          if (selectedSubcategory !== 'All') {
+            if (!product.subcategory) {
+              matchesSubcategory = false;
+            } else {
+              // Normalize both subcategory names for comparison
+              const productSubcategory = product.subcategory.trim();
+              const selectedSubcategoryNormalized = selectedSubcategory.trim();
+              
+              // Case-insensitive comparison
+              matchesSubcategory = productSubcategory.toLowerCase() === selectedSubcategoryNormalized.toLowerCase();
+            }
+          }
+          
+          return matchesCategory && matchesSubcategory && matchesSearch;
+        });
         return categoryProducts.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-8 lg:gap-10 xl:gap-12 py-4">
             {categoryProducts.map((product: any) => (
